@@ -65,7 +65,7 @@ func (m *mounter) GetDevicePath(ctx context.Context, volumeID string) (string, e
 	}
 
 	var devicePath string
-	err := wait.ExponentialBackoffWithContext(ctx, backoff, func() (bool, error) {
+	err := wait.ExponentialBackoffWithContext(ctx, backoff, func(context.Context) (bool, error) {
 		path, err := m.getDevicePathBySerialID(volumeID)
 		if err != nil {
 			return false, err
