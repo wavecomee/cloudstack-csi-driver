@@ -65,7 +65,7 @@ func (m *mounter) GetDevicePath(ctx context.Context, volumeID string) (string, e
 	}
 
 	var devicePath string
-	err := wait.ExponentialBackoffWithContext(ctx, backoff, func() (bool, error) {
+	err := wait.ExponentialBackoffWithContext(ctx, backoff, func(context.Context) (bool, error) {
 		path, err := m.getDevicePathBySerialID(volumeID)
 		if err != nil {
 			return false, err
@@ -78,7 +78,7 @@ func (m *mounter) GetDevicePath(ctx context.Context, volumeID string) (string, e
 		return false, nil
 	})
 
-	if err == wait.ErrWaitTimeout {
+	if wait.Interrupted(err) {
 		return "", fmt.Errorf("failed to find device for the volumeID: %q within the alloted time", volumeID)
 	} else if devicePath == "" {
 		return "", fmt.Errorf("device path was empty for volumeID: %q", volumeID)
