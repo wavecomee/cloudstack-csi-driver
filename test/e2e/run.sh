@@ -26,6 +26,10 @@ sed "s/<disk-offering-id>/${DISK_OFFERING_ID}/" storageclass.yaml | kubectl appl
        -storage.testdriver=testdriver.yaml \
         --kubeconfig="$KUBECONFIG"
 
+# Delete volume populators CRD created by e2e.test in the previous run
+# This prevents a test from failing with CRD already exists
+kubectl delete crd volumepopulators.populator.storage.k8s.io
+
 # Then run the remaining tests, sequentially:
 ./ginkgo -progress -v \
        -focus='External.Storage.*csi-cloudstack.*(\[Feature:|\[Disruptive\]|\[Serial\])' \

@@ -26,6 +26,10 @@ func NewFake() Interface {
 	}
 }
 
+func (m *fakeMounter) CleanupMountPoint(path string, extensiveCheck bool) error {
+	return mount.CleanupMountPoint(path, m, extensiveCheck)
+}
+
 func (m *fakeMounter) GetDevicePath(ctx context.Context, volumeID string) (string, error) {
 	return "/dev/sdb", nil
 }
