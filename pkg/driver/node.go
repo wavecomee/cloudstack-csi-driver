@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
+	"github.com/leaseweb/cloudstack-csi-driver/pkg/util"
 )
 
 const (
@@ -22,9 +22,10 @@ const (
 
 type nodeServer struct {
 	csi.UnimplementedNodeServer
-	connector cloud.Interface
-	mounter   mount.Interface
-	nodeName  string
+	connector   cloud.Interface
+	mounter     mount.Interface
+	nodeName    string
+	volumeLocks *util.VolumeLocks
 }
 
 // NewNodeServer creates a new Node gRPC server.
@@ -33,9 +34,10 @@ func NewNodeServer(connector cloud.Interface, mounter mount.Interface, nodeName 
 		mounter = mount.New()
 	}
 	return &nodeServer{
-		connector: connector,
-		mounter:   mounter,
-		nodeName:  nodeName,
+		connector:   connector,
+		mounter:     mounter,
+		nodeName:    nodeName,
+		volumeLocks: util.NewVolumeLocks(),
 	}
 }
 
@@ -61,6 +63,12 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Error(codes.InvalidArgument, "Volume capability not supported")
 	}
 
+	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
+		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+	}
+	defer ns.volumeLocks.Release(volumeID)
+
 	// Now, find the device path
 
 	deviceID := req.PublishContext[deviceIDContextKey]
@@ -76,8 +84,7 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	)
 
 	// If the access type is block, do nothing for stage
-	switch volCap.GetAccessType().(type) {
-	case *csi.VolumeCapability_Block:
+	if blk := volCap.GetBlock(); blk != nil {
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
@@ -109,6 +116,12 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 
 	// Volume Mount
 	if notMnt {
+		ctxzap.Extract(ctx).Sugar().Infow("NodeStageVolume: formatting and mounting",
+			"devicePath", devicePath,
+			"target", target,
+			"fsType", fsType,
+			"options", mountOptions,
+		)
 		err = ns.mounter.FormatAndMount(devicePath, target, fsType, mountOptions)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
@@ -142,30 +155,36 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
 	}
 
-	// Check if target directory is a mount point. GetDeviceNameFromMount
-	// given a mnt point, finds the device from /proc/mounts
-	// returns the device name, reference count, and error code
-	dev, refCount, err := ns.mounter.GetDeviceName(target)
-	if err != nil {
-		msg := fmt.Sprintf("failed to check if volume is mounted: %v", err)
-		return nil, status.Error(codes.Internal, msg)
+	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
+		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
+	defer ns.volumeLocks.Release(volumeID)
 
-	// From the spec: If the volume corresponding to the volume_id
-	// is not staged to the staging_target_path, the Plugin MUST
-	// reply 0 OK.
-	if refCount == 0 {
+	notMnt, err := ns.mounter.IsLikelyNotMountPoint(target)
+
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, status.Error(codes.NotFound, "Target path not found")
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if notMnt {
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
-	if refCount > 1 {
-		ctxzap.Extract(ctx).Sugar().Warnf("NodeUnstageVolume: found %d references to device %s mounted at target path %s", refCount, dev, target)
+	ctxzap.Extract(ctx).Sugar().Infow("NodeUnstageVolume: unmounting",
+		"target", target,
+	)
+
+	err = ns.mounter.CleanupMountPoint(target, true)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to unmount target %q: %v", target, err)
 	}
 
-	err = ns.mounter.Unmount(target)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not unmount target %q: %v", target, err)
-	}
+	ctxzap.Extract(ctx).Sugar().Infow("NodeUnstageVolume: unmount succesfull",
+		"target", target,
+	)
 
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
@@ -204,6 +223,12 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		deviceID = req.GetPublishContext()[deviceIDContextKey]
 	}
 
+	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
+		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+	}
+	defer ns.volumeLocks.Release(volumeID)
+
 	if req.GetVolumeCapability().GetMount() != nil {
 		source := req.GetStagingTargetPath()
 
@@ -218,6 +243,10 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			}
 		}
 		if !notMnt {
+			ctxzap.Extract(ctx).Sugar().Infow("NodePublishVolume: volume is already mounted",
+				"source", source,
+				"targetPath", targetPath,
+			)
 			return &csi.NodePublishVolumeResponse{}, nil
 		}
 
@@ -225,7 +254,8 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 
 		mountFlags := req.GetVolumeCapability().GetMount().GetMountFlags()
 
-		ctxzap.Extract(ctx).Sugar().Infow("Mounting device",
+		ctxzap.Extract(ctx).Sugar().Infow("NodePublishVolume: mounting source",
+			"source", source,
 			"targetPath", targetPath,
 			"fsType", fsType,
 			"deviceID", deviceID,
@@ -266,6 +296,14 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			return nil, status.Errorf(codes.Internal, "Could not create file %q: %v", targetPath, err)
 		}
 
+		ctxzap.Extract(ctx).Sugar().Infow("NodePublishVolume: mounting device",
+			"devicePath", devicePath,
+			"targetPath", targetPath,
+			"deviceID", deviceID,
+			"readOnly", readOnly,
+			"volumeID", volumeID,
+		)
+
 		if err := ns.mounter.Mount(devicePath, targetPath, "", options); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to mount %s at %s: %s", devicePath, targetPath, err.Error())
 		}
@@ -275,15 +313,21 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 }
 
 func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
-	if req.GetVolumeId() == "" {
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
 	}
-	if req.GetTargetPath() == "" {
+	targetPath := req.GetTargetPath()
+	if targetPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "Target path missing in request")
 	}
-	targetPath := req.GetTargetPath()
 
-	volumeID := req.GetVolumeId()
+	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
+		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+	}
+	defer ns.volumeLocks.Release(volumeID)
+
 	if _, err := ns.connector.GetVolumeByID(ctx, volumeID); err == cloud.ErrNotFound {
 		return nil, status.Errorf(codes.NotFound, "Volume %v not found", volumeID)
 	} else if err != nil {
@@ -291,14 +335,21 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 		return nil, status.Errorf(codes.Internal, "Error %v", err)
 	}
 
-	err := ns.mounter.Unmount(targetPath)
+	ctxzap.Extract(ctx).Sugar().Infow("NodeUnpublishVolume: unmounting volume",
+		"targetPath", targetPath,
+		"volumeID", volumeID,
+	)
+
+	err := ns.mounter.CleanupMountPoint(targetPath, true)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Unmount of targetpath %s failed with error %v", targetPath, err)
+		return nil, status.Errorf(codes.Internal, "failed to unmount target %q: %v", targetPath, err)
 	}
-	err = os.Remove(targetPath)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, status.Errorf(codes.Internal, "Deleting %s failed with error %v", targetPath, err)
-	}
+
+	ctxzap.Extract(ctx).Sugar().Infow("NodeUnpublishVolume: unmounting successful",
+		"targetPath", targetPath,
+		"volumeID", volumeID,
+	)
+
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 

@@ -29,6 +29,7 @@ type Interface interface {
 
 	FormatAndMount(source string, target string, fstype string, options []string) error
 
+	CleanupMountPoint(path string, extensiveCheck bool) error
 	GetDevicePath(ctx context.Context, volumeID string) (string, error)
 	GetDeviceName(mountPath string) (string, int, error)
 	ExistsPath(filename string) (bool, error)
@@ -50,6 +51,10 @@ func New() Interface {
 		},
 		exec.New(),
 	}
+}
+
+func (m *mounter) CleanupMountPoint(path string, extensiveCheck bool) error {
+	return mount.CleanupMountPoint(path, m, extensiveCheck)
 }
 
 func (m *mounter) GetDevicePath(ctx context.Context, volumeID string) (string, error) {
