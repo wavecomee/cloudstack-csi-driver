@@ -90,6 +90,16 @@ spec:
             - "--csi-address=$(ADDRESS)"
             - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
             - "--v=5"
+            - "--health-port=9809"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            failureThreshold: 5
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 15
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -100,6 +110,9 @@ spec:
               mountPath: /csi
             - name: registration-dir
               mountPath: /registration
+          ports:
+            - containerPort: 9809
+              name: healthz
 
       volumes:
         - name: plugin-dir
