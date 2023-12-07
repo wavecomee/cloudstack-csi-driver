@@ -22,7 +22,6 @@ linters-settings:
 linters:
   disable-all: true
   enable:
-    - deadcode
     - errcheck
     - gosimple
     - govet
@@ -30,8 +29,6 @@ linters:
     - staticcheck
     - stylecheck
     - goimports
-    - structcheck
     - typecheck
     - unused
-    - varcheck
     - misspell
