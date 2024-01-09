@@ -35,6 +35,7 @@ type Interface interface {
 	ExistsPath(filename string) (bool, error)
 	MakeDir(pathname string) error
 	MakeFile(pathname string) error
+	NewResizeFs(exec exec.Interface) *mount.ResizeFs
 }
 
 type mounter struct {
@@ -174,4 +175,8 @@ func (*mounter) MakeFile(pathname string) error {
 		return err
 	}
 	return nil
+}
+
+func (*mounter) NewResizeFs(exec exec.Interface) *mount.ResizeFs {
+	return mount.NewResizeFs(New())
 }

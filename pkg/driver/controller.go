@@ -7,6 +7,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -413,6 +414,70 @@ func isValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
 	return true
 }
 
+func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
+	expandVolumeLock := util.NewOperationLock(ctx)
+	logger := ctxzap.Extract(ctx).Sugar()
+	logger.Infow("Expand Volume: called with args", "args", protosanitizer.StripSecrets(*req))
+
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
+	err := expandVolumeLock.GetExpandLock(volumeID)
+	if err != nil {
+
+		logger.Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+	}
+	defer expandVolumeLock.ReleaseExpandLock(volumeID)
+
+	cap := req.GetCapacityRange()
+	if cap == nil {
+		return nil, status.Error(codes.InvalidArgument, "Capacity range not provided")
+	}
+
+	volSizeBytes := cap.GetRequiredBytes()
+	volSizeGB := util.RoundUpBytesToGB(volSizeBytes)
+	maxVolSize := cap.GetLimitBytes()
+
+	if maxVolSize > 0 && maxVolSize < util.GigaBytesToBytes(volSizeGB) {
+		return nil, status.Error(codes.OutOfRange, "Volume size exceeds the limit specified")
+	}
+
+	volume, err := cs.connector.GetVolumeByID(ctx, volumeID)
+	if err != nil {
+		if err == cloud.ErrNotFound {
+			return nil, status.Errorf(codes.NotFound, "Volume %v not found", volumeID)
+		}
+		return nil, status.Error(codes.Internal, fmt.Sprintf("GetVolume failed with error %v", err))
+	}
+
+	if volume.Size >= util.GigaBytesToBytes(volSizeGB) {
+		// A volume was already resized
+		logger.Infof("Volume %q has been already expanded to %d. requested %d", volumeID, volume.Size, volSizeGB)
+
+		return &csi.ControllerExpandVolumeResponse{
+			CapacityBytes:         volume.Size,
+			NodeExpansionRequired: true,
+		}, nil
+
+	}
+	err = cs.connector.ExpandVolume(ctx, volumeID, volSizeGB)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not resize volume %q to size %v: %v", volumeID, volSizeGB, err)
+	}
+
+	logger.Infow("ControllerExpandVolume resized",
+		"requested_volume_ID", volumeID,
+		"new_size", volSizeGB,
+	)
+
+	return &csi.ControllerExpandVolumeResponse{
+		CapacityBytes:         util.GigaBytesToBytes(volSizeGB),
+		NodeExpansionRequired: true,
+	}, nil
+}
+
 func (cs *controllerServer) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
 	return &csi.ControllerGetCapabilitiesResponse{
 		Capabilities: []*csi.ControllerServiceCapability{
@@ -427,6 +492,13 @@ func (cs *controllerServer) ControllerGetCapabilities(ctx context.Context, req *
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+					},
+				},
+			},
+			{
+				Type: &csi.ControllerServiceCapability_Rpc{
+					Rpc: &csi.ControllerServiceCapability_RPC{
+						Type: csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 					},
 				},
 			},
