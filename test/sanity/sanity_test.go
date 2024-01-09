@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kubernetes-csi/csi-test/v4/pkg/sanity"
+	"github.com/kubernetes-csi/csi-test/v5/pkg/sanity"
 	"go.uber.org/zap"
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud/fake"
