@@ -1,0 +1,14 @@
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: csi.cloudstack.apache.org
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+  # Supports only persistent volumes.
+  volumeLifecycleModes:
+  - Persistent

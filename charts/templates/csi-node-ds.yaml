@@ -1,0 +1,180 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "csi.name" . }}-node
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "csi.node.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "csi.node.matchLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "csi.node.labels" . | nindent 8 }}
+      annotations:
+        {{- with .Values.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      containers:
+        - name: cloudstack-csi-node
+          image: "{{ .Values.node.csiDriver.image.repository }}:{{ .Values.node.csiDriver.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.node.csiDriver.image.pullPolicy }}
+          args:
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--cloudstackconfig=$(CLOUD_CONFIG)"
+            - "--nodeName=$(NODE_NAME)"
+            {{- if .Values.node.csiDriver.extraArgs }}
+            {{- with .Values.node.csiDriver.extraArgs }}
+            {{- tpl . $ | trim | nindent 12 }}
+            {{- end }}
+            {{- end }}
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: CLOUD_CONFIG
+              value: /etc/config/cloud.conf
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          {{ if .Values.livenessProbe.enable }}
+          livenessProbe: {{- toYaml .Values.livenessProbe.livenessProbeSpec | nindent 12 }}
+          {{ end }}
+          ports:
+            - containerPort: 9808
+              name: healthz
+              protocol: TCP
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+            allowPrivilegeEscalation: true
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: kubelet-dir
+              mountPath: {{ .Values.node.kubeletDir }}
+              # needed so that any mounts setup inside this container are
+              # propagated back to the host machine.
+              mountPropagation: "Bidirectional"
+            - name: pods-probe-dir
+              mountPath: /dev
+              mountPropagation: "HostToContainer"
+            - name: cloud-config
+              mountPath: /etc/config
+          {{- with .Values.node.csiDriver.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources: {{ toYaml .Values.node.csiDriver.resources | nindent 12 }}
+        - name: node-driver-registrar
+          securityContext:
+            {{- toYaml .Values.node.securityContext | nindent 12 }}
+          image: "{{ .Values.node.nodeDriverRegistrar.image.repository }}:{{ .Values.node.nodeDriverRegistrar.image.tag }}"
+          imagePullPolicy: {{ .Values.node.nodeDriverRegistrar.image.pullPolicy }}
+          args:
+            - "-v={{ .Values.logVerbosityLevel }}"
+            - "--csi-address=$(ADDRESS)"
+            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+            - "--health-port=9809"
+            {{- if .Values.node.nodeDriverRegistrar.extraArgs }}
+            {{- with .Values.node.nodeDriverRegistrar.extraArgs }}
+            {{- tpl . $ | trim | nindent 12 }}
+            {{- end }}
+            {{- end }}
+          ports:
+              - containerPort: 9809
+                name: healthz
+          {{ if .Values.livenessProbe.enable }}
+          livenessProbe: {{- toYaml .Values.livenessProbe.livenessProbeSpec | nindent 12 }}
+          {{- end }}
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: DRIVER_REG_SOCK_PATH
+              value: {{ .Values.node.kubeletDir }}/plugins/csi.cloudstack.apache.org/csi.sock
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+            - name: registration-dir
+              mountPath: /registration
+          resources: {{ toYaml .Values.node.nodeDriverRegistrar.resources | nindent 12 }}
+        {{ if .Values.livenessProbe.enable }}
+        - name: liveness-probe
+          securityContext:
+            {{- toYaml .Values.node.securityContext | nindent 12 }}
+          image: "{{ .Values.livenessProbe.image.repository }}:{{ .Values.livenessProbe.image.tag }}"
+          imagePullPolicy: {{ .Values.livenessProbe.image.pullPolicy }}
+          args:
+            - "-v={{ .Values.logVerbosityLevel }}"
+            - "--csi-address=$(ADDRESS)"
+            {{- if .Values.livenessProbe.extraArgs }}
+            {{- with .Values.livenessProbe.extraArgs }}
+            {{- tpl . $ | trim | nindent 12 }}
+            {{- end }}
+            {{- end }}
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - mountPath: /csi/
+              name: socket-dir
+          resources: {{ toYaml .Values.livenessProbe.resources | nindent 12 }}
+        {{ end }}  
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: {{ .Values.node.kubeletDir }}/plugins/csi.cloudstack.apache.org/
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: {{ .Values.node.kubeletDir }}/plugins_registry/
+            type: Directory
+        - name: kubelet-dir
+          hostPath:
+            path: {{ .Values.node.kubeletDir }}
+            type: Directory
+        - name: pods-probe-dir
+          hostPath:
+            path: /dev
+            type: Directory
+        {{- if .Values.secret.enabled }}
+        - name: cloud-config
+          secret:
+            secretName: {{ .Values.secret.name }}
+        {{- else if .Values.secret.hostMount }}
+        - name: cloud-config
+          hostPath:
+            path: /etc/config
+        {{- end }}
+        {{- with .Values.node.volumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      affinity: {{ toYaml .Values.node.affinity | nindent 8 }}
+      nodeSelector: {{ toYaml .Values.node.nodeSelector | nindent 8 }}
+      tolerations: {{ toYaml .Values.node.tolerations | nindent 8 }}
+      dnsPolicy: {{ .Values.node.dnsPolicy }}
+      {{- with .Values.node.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+    {{- end }}
+    {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}

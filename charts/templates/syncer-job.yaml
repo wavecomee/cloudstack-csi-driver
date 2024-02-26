@@ -1,0 +1,49 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "csi.name" . }}-sc-syncer
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: {{ .Values.syncer.backoffLimit }}
+  template:
+    spec:
+      securityContext: {{- toYaml .Values.syncer.securityContext | nindent 12 }}
+      serviceAccountName: {{ .Values.syncer.rbac.serviceAccount.name }}
+      containers:
+      - image: "{{ .Values.syncer.image.repository }}:{{ .Values.syncer.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.syncer.image.imagePullPolicy }}
+        name: {{ include "csi.name" . }}-sc-syncer
+        args: 
+          - "--cloudstackconfig=$(CLOUD_CONFIG)"
+          - "--kubeconfig=-"
+          - "--volumeExpansion=true"
+          {{- if .Values.syncer.extraArgs }}
+          {{- with .Values.syncer.extraArgs }}
+          {{- tpl . $ | trim | nindent 12 }}
+          {{- end }}
+          {{- end }}
+        env:
+          - name: CLOUD_CONFIG
+            value: /etc/config/cloud.conf
+        volumeMounts:
+          - name: cloud-config
+            mountPath: /etc/config/
+        resources: {{ toYaml .Values.controller.resizer.resources | nindent 12 }}
+      volumes:
+        {{- if .Values.secret.enabled }}
+        - name: cloud-config
+          secret:
+            secretName: {{ .Values.secret.name }}
+        {{- else if .Values.secret.hostMount }}
+        - name: cloud-config
+          hostPath:
+            path: /etc/cloudstack-csi-driver
+        {{- end }}
+      affinity: {{ toYaml .Values.syncer.affinity | nindent 8 }}
+      nodeSelector: {{ toYaml .Values.syncer.nodeSelector | nindent 8 }}
+      restartPolicy: {{ .Values.syncer.restartPolicy }}
