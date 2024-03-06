@@ -1,0 +1,233 @@
+extraLabels: {}
+
+nameOverride: "cloudstack-csi"
+fullnameOverride: ""
+timeout: 300s
+
+## Annotations to apply to all resources
+commonAnnotations: {}
+# commonAnnotations:
+#   "helm.sh/hook": pre-install,pre-upgrade
+#   "helm.sh/hook-weight": "-100"
+#   "helm.sh/hook-delete-policy": before-hook-creation
+
+# Create Prometheus Operator PodMonitor. Requires http server above.
+# See https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api.md#monitoring.coreos.com/v1.PodMonitor
+podMonitor:
+  enabled: false
+
+## CloudStack CSI Controller Defaults
+controller:
+  attacher:
+    image:
+      repository: registry.k8s.io/sig-storage/csi-attacher
+      tag: v4.4.2
+      pullPolicy: IfNotPresent
+    resources: {}
+    extraArgs: {}
+  provisioner:
+    topology: "true"
+    image:
+      repository: registry.k8s.io/sig-storage/csi-provisioner
+      tag: v3.6.2
+      pullPolicy: IfNotPresent
+    resources: {}
+    extraArgs: {}
+  resizer:
+    image:
+      repository: registry.k8s.io/sig-storage/csi-resizer
+      tag: v1.9.2
+      pullPolicy: IfNotPresent
+    resources: {}
+    extraArgs: {}
+  csiDriverController:
+    image:
+      repository: ghcr.io/leaseweb/cloudstack-csi-driver
+      pullPolicy: IfNotPresent
+      tag: 0.3.0  # defaults to .Chart.AppVersion
+    volumeMounts:
+      - name: cacert
+        mountPath: /etc/cacert
+        readOnly: true
+    resources: {}
+    extraArgs: {}
+    
+  ## Set number of replicas (If replicaCount set to 1 by default leader-elect will be false)
+  replicaCount: 1
+  strategy:
+    # RollingUpdate strategy replaces old pods with new ones gradually,
+    # without incurring downtime.
+    type: RollingUpdate
+    rollingUpdate:
+      # maxUnavailable is the maximum number of pods that can be
+      # unavailable during the update process.
+      maxUnavailable: 0
+      # maxSurge is the maximum number of pods that can be
+      # created over the desired number of pods.
+      maxSurge: 1
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    fsGroupChangePolicy: OnRootMismatch
+  securityContext: {}
+    # capabilities:
+    #   drop:
+    #   - ALL
+    # seccompProfile:
+    #   type: RuntimeDefault
+    # readOnlyRootFilesystem: true
+  volumes:
+    - name: cacert
+      hostPath:
+        path: /etc/cacert
+  affinity: {}
+  nodeSelector: {}
+  tolerations: []
+  # Allow for specifying internal IP addresses for multiple hostnames
+  hostAliases: {}
+  #   - ip: "10.0.0.1"
+  #     hostnames:
+  #     - "keystone.hostname.com"
+
+## CloudStack CSI Node Defaults
+node:
+  nodeDriverRegistrar:
+    image:
+      repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
+      tag: v2.9.2
+      pullPolicy: IfNotPresent
+    resources: {}
+    extraArgs: {}
+  csiDriver:
+    image:
+      repository: ghcr.io/leaseweb/cloudstack-csi-driver
+      pullPolicy: IfNotPresent
+      tag: 0.3.0  # defaults to .Chart.AppVersion
+    resources: {}
+    extraArgs: {}
+    volumeMounts:
+      - name: cacert
+        mountPath: /etc/cacert
+        readOnly: true
+  volumes:
+    - name: cacert
+      hostPath:
+        path: /etc/cacert
+    
+  podSecurityContext: {}
+ 
+  securityContext: {}
+    # capabilities:
+    #   drop:
+    #   - ALL
+    # seccompProfile:
+    #   type: RuntimeDefault
+  
+  affinity: {}
+  
+  nodeSelector: {}
+  
+  tolerations:
+    - operator: Exists
+  
+  kubeletDir: /var/lib/kubelet
+
+  # Allow for specifying internal IP addresses for multiple hostnames
+  hostAliases:
+  #   - ip: "10.0.0.1"
+  #     hostnames:
+  #     - "keystone.hostname.com"
+
+## CloudStack Storage Class Synecr Job Defaults 
+syncer:
+  # Job image
+  image:
+    repository: "ghcr.io/leaseweb/cloudstack-csi-sc-syncer"
+    tag: "0.3.0" # defaults to .Chart.AppVersion
+    imagePullPolicy: IfNotPresent
+
+  extraArgs: {}
+
+  # Job configurations
+  backoffLimit: 4
+  restartPolicy: Never
+
+  rbac:
+    create: true
+    serviceAccount:
+      name: cloudstack-csi-sc-syncer
+
+  # Define resources
+  # resources:
+  #  limits:
+  #    cpu: 2
+  #    memory: 2000Mi
+  #  requests:
+  #    cpu: 500m
+  #    memory: 500Mi
+
+  securityContext: {}
+    # capabilities:
+    #   drop:
+    #   - ALL
+    # seccompProfile:
+    #   type: RuntimeDefault
+  
+  affinity: {}
+  
+  nodeSelector: {}
+
+# Log verbosity level.
+# See https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md
+# for description of individual verbosity levels.
+logVerbosityLevel: 2
+
+# the secret should contain the cloudstack credentials
+# there are several options to inject the credentials:
+# 1) from kubernetes secret that doesn't exist: set "enabled" and "create" to true, this will create a secret from the values written to "data" down below
+# 2) from kubernetes secret that already exists: set "enabled" to true and "create" to false
+# 3) from host system path /etc/cloud/cloud.conf: set "enabled" to false and "hostMount" to true
+# 4) via agent-injector (e.g. hashicorp vault): set "enabled" and "hostMount" to false, you have to provide credentials on your own by injecting credentials into the pod
+secret:
+  enabled: true
+  create: false
+  name: cloud-config
+  cloudConfigData:
+    global:
+      api-url: ""
+      api-key: ""
+      secret-key: ""
+  hostMount: false
+
+priorityClassName: ""
+
+imagePullSecrets: []
+# - name: my-imagepull-secret
+
+serviceAccount:
+  create: true
+  name: "cloudstack-csi-controller"
+
+rbac: 
+  create: true
+
+livenessProbe:
+  enable: true
+  image:
+    repository: registry.k8s.io/sig-storage/livenessprobe
+    tag: v2.11.0
+    pullPolicy: IfNotPresent
+  resources: {}
+  extraArgs: {}
+  livenessProbeSpec:
+    httpGet:
+      path: /healthz
+      port: healthz
+    failureThreshold: 5
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 15
+
