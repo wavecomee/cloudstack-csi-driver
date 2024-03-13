@@ -41,6 +41,6 @@ func ReadConfig(configFilePath string) (*Config, error) {
 		APIURL:    cfg.Global.APIURL,
 		APIKey:    cfg.Global.APIKey,
 		SecretKey: cfg.Global.SecretKey,
-		VerifySSL: cfg.Global.SSLNoVerify,
+		VerifySSL: !cfg.Global.SSLNoVerify,
 	}, nil
 }
