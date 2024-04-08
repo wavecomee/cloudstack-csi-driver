@@ -1,3 +1,4 @@
+{{ if .Values.controller.enabled }}
 {{ if .Values.rbac.create }}
 # This YAML file contains Cluster Role Binding objects,
 # which are necessary to run cloudstack-csi-controller
@@ -52,4 +53,5 @@ roleRef:
   kind: ClusterRole
   name: csi-resizer-role
   apiGroup: rbac.authorization.k8s.io
+{{- end}}
 {{- end}}

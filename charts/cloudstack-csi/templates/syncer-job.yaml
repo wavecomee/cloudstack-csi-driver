@@ -1,3 +1,5 @@
+
+{{ if .Values.syncer.enabled }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -47,3 +49,4 @@ spec:
       affinity: {{ toYaml .Values.syncer.affinity | nindent 8 }}
       nodeSelector: {{ toYaml .Values.syncer.nodeSelector | nindent 8 }}
       restartPolicy: {{ .Values.syncer.restartPolicy }}
+{{- end }}
