@@ -18,6 +18,7 @@ podMonitor:
 
 ## CloudStack CSI Controller Defaults
 controller:
+  enabled: true
   attacher:
     image:
       repository: registry.k8s.io/sig-storage/csi-attacher
@@ -93,6 +94,7 @@ controller:
 
 ## CloudStack CSI Node Defaults
 node:
+  enabled: true
   nodeDriverRegistrar:
     image:
       repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
@@ -115,6 +117,7 @@ node:
     - name: cacert
       hostPath:
         path: /etc/cacert
+  dnsPolicy: ClusterFirstWithHostNet
     
   podSecurityContext: {}
  
@@ -142,6 +145,7 @@ node:
 
 ## CloudStack Storage Class Synecr Job Defaults 
 syncer:
+  enabled: true
   # Job image
   image:
     repository: "ghcr.io/leaseweb/cloudstack-csi-sc-syncer"
