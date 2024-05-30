@@ -18,6 +18,7 @@ podMonitor:
 
 ## CloudStack CSI Controller Defaults
 controller:
+  enabled: true
   attacher:
     image:
       repository: registry.k8s.io/sig-storage/csi-attacher
@@ -44,7 +45,7 @@ controller:
     image:
       repository: ghcr.io/leaseweb/cloudstack-csi-driver
       pullPolicy: IfNotPresent
-      tag: 0.3.0  # defaults to .Chart.AppVersion
+      # tag: 0.4.1  # defaults to .Chart.AppVersion
     volumeMounts:
       - name: cacert
         mountPath: /etc/cacert
@@ -93,6 +94,7 @@ controller:
 
 ## CloudStack CSI Node Defaults
 node:
+  enabled: true
   nodeDriverRegistrar:
     image:
       repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
@@ -104,7 +106,7 @@ node:
     image:
       repository: ghcr.io/leaseweb/cloudstack-csi-driver
       pullPolicy: IfNotPresent
-      tag: 0.3.0  # defaults to .Chart.AppVersion
+      # tag: 0.4.1  # defaults to .Chart.AppVersion
     resources: {}
     extraArgs: {}
     volumeMounts:
@@ -115,6 +117,7 @@ node:
     - name: cacert
       hostPath:
         path: /etc/cacert
+  dnsPolicy: ClusterFirstWithHostNet
     
   podSecurityContext: {}
  
@@ -142,10 +145,11 @@ node:
 
 ## CloudStack Storage Class Synecr Job Defaults 
 syncer:
+  enabled: true
   # Job image
   image:
     repository: "ghcr.io/leaseweb/cloudstack-csi-sc-syncer"
-    tag: "0.3.0" # defaults to .Chart.AppVersion
+    # tag: "0.4.1" # defaults to .Chart.AppVersion
     imagePullPolicy: IfNotPresent
 
   extraArgs: {}

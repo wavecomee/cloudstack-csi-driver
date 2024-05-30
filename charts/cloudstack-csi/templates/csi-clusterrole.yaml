@@ -1,3 +1,4 @@
+{{ if .Values.controller.enabled }}
 {{ if .Values.rbac.create }}
 # This YAML file contains Cluster Role objects,
 # which are necessary to run cloudstack-csi-controller
@@ -105,4 +106,5 @@ rules:
     resources: [leases]
     verbs: ["get", "watch", "list", "delete", "update", "create"]
   {{- end}}
+{{- end}}
 {{- end}}

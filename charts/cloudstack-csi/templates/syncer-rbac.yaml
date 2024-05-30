@@ -1,3 +1,4 @@
+{{ if .Values.syncer.enabled }}
 {{ if .Values.syncer.rbac.create }}
 ---
 apiVersion: v1
@@ -39,4 +40,5 @@ roleRef:
   kind: ClusterRole
   name: csi-sc-syncer-role
   apiGroup: rbac.authorization.k8s.io
+{{- end }}
 {{- end }}
