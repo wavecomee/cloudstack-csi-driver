@@ -55,6 +55,7 @@ func (cs *cloudstackDriver) serve(ids csi.IdentityServer, ctrls csi.ControllerSe
 	}
 
 	cs.logger.Sugar().Infow("Listening for connections", "address", listener.Addr())
+
 	return server.Serve(listener)
 }
 
@@ -65,5 +66,6 @@ func parseEndpoint(ep string) (string, string, error) {
 			return s[0], s[1], nil
 		}
 	}
+
 	return "", "", fmt.Errorf("invalid endpoint: %v", ep)
 }

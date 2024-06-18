@@ -6,16 +6,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/util"
 )
 
-func (c *client) GetVolumeByID(ctx context.Context, volumeID string) (*Volume, error) {
-	p := c.Volume.NewListVolumesParams()
-	p.SetId(volumeID)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListVolumes", "params", map[string]string{
-		"id": volumeID,
-	})
+func (c *client) listVolumes(p *cloudstack.ListVolumesParams) (*Volume, error) {
 	l, err := c.Volume.ListVolumes(p)
 	if err != nil {
 		return nil, err
@@ -36,7 +33,18 @@ func (c *client) GetVolumeByID(ctx context.Context, volumeID string) (*Volume, e
 		VirtualMachineID: vol.Virtualmachineid,
 		DeviceID:         strconv.FormatInt(vol.Deviceid, 10),
 	}
+
 	return &v, nil
+}
+
+func (c *client) GetVolumeByID(ctx context.Context, volumeID string) (*Volume, error) {
+	p := c.Volume.NewListVolumesParams()
+	p.SetId(volumeID)
+	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListVolumes", "params", map[string]string{
+		"id": volumeID,
+	})
+
+	return c.listVolumes(p)
 }
 
 func (c *client) GetVolumeByName(ctx context.Context, name string) (*Volume, error) {
@@ -45,27 +53,8 @@ func (c *client) GetVolumeByName(ctx context.Context, name string) (*Volume, err
 	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListVolumes", "params", map[string]string{
 		"name": name,
 	})
-	l, err := c.Volume.ListVolumes(p)
-	if err != nil {
-		return nil, err
-	}
-	if l.Count == 0 {
-		return nil, ErrNotFound
-	}
-	if l.Count > 1 {
-		return nil, ErrTooManyResults
-	}
-	vol := l.Volumes[0]
-	v := Volume{
-		ID:               vol.Id,
-		Name:             vol.Name,
-		Size:             vol.Size,
-		DiskOfferingID:   vol.Diskofferingid,
-		ZoneID:           vol.Zoneid,
-		VirtualMachineID: vol.Virtualmachineid,
-		DeviceID:         strconv.FormatInt(vol.Deviceid, 10),
-	}
-	return &v, nil
+
+	return c.listVolumes(p)
 }
 
 func (c *client) CreateVolume(ctx context.Context, diskOfferingID, zoneID, name string, sizeInGB int64) (string, error) {
@@ -84,6 +73,7 @@ func (c *client) CreateVolume(ctx context.Context, diskOfferingID, zoneID, name 
 	if err != nil {
 		return "", err
 	}
+
 	return vol.Id, nil
 }
 
@@ -97,6 +87,7 @@ func (c *client) DeleteVolume(ctx context.Context, id string) error {
 		// CloudStack error InvalidParameterValueException
 		return ErrNotFound
 	}
+
 	return err
 }
 
@@ -110,6 +101,7 @@ func (c *client) AttachVolume(ctx context.Context, volumeID, vmID string) (strin
 	if err != nil {
 		return "", err
 	}
+
 	return strconv.FormatInt(r.Deviceid, 10), nil
 }
 
@@ -120,14 +112,15 @@ func (c *client) DetachVolume(ctx context.Context, volumeID string) error {
 		"id": volumeID,
 	})
 	_, err := c.Volume.DetachVolume(p)
+
 	return err
 }
 
-// ExpandVolume expands the volume to new size
+// ExpandVolume expands the volume to new size.
 func (c *client) ExpandVolume(ctx context.Context, volumeID string, newSizeInGB int64) error {
 	volume, _, err := c.Volume.GetVolumeByID(volumeID)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve volume '%s': %v", volumeID, err)
+		return fmt.Errorf("failed to retrieve volume '%s': %w", volumeID, err)
 	}
 	if volume.State != "Allocated" && volume.State != "Ready" {
 		return fmt.Errorf("volume '%s' is not in 'Allocated' or 'Ready' state to get resized", volumeID)
@@ -144,12 +137,12 @@ func (c *client) ExpandVolume(ctx context.Context, volumeID string, newSizeInGB 
 		"current_size":   strconv.FormatInt(currentSizeInGB, 10),
 		"requested_size": strconv.FormatInt(newSizeInGB, 10),
 	})
-	// Execute the API call to resize the volume
-	expandedVol, err := c.Volume.ResizeVolume(p)
+	// Execute the API call to resize the volume.
+	_, err = c.Volume.ResizeVolume(p)
 	if err != nil {
 		// Handle the error accordingly
-		return fmt.Errorf("failed to expand volume '%s': %v", volumeID, err)
+		return fmt.Errorf("failed to expand volume '%s': %w", volumeID, err)
 	}
-	fmt.Printf("Volume %s resied to %d successfully", expandedVol.Id, expandedVol.Size)
+
 	return nil
 }

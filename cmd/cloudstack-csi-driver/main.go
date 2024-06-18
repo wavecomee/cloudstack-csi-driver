@@ -25,7 +25,7 @@ var (
 	debug            = flag.Bool("debug", false, "Enable debug logging")
 	showVersion      = flag.Bool("version", false, "Show version")
 
-	// Version is set by the build process
+	// Version is set by the build process.
 	version  = ""
 	isDevEnv = false
 )
@@ -35,7 +35,8 @@ func main() {
 
 	if *showVersion {
 		baseName := path.Base(os.Args[0])
-		fmt.Println(baseName, version)
+		fmt.Println(baseName, version) //nolint:forbidigo
+
 		return
 	}
 
@@ -48,7 +49,7 @@ func main() {
 }
 
 func run() {
-	// Setup logging
+	// Setup logging.
 	var logConfig zap.Config
 	if isDevEnv {
 		logConfig = zap.NewDevelopmentConfig()
@@ -63,11 +64,11 @@ func run() {
 	undo := zap.ReplaceGlobals(logger)
 	defer undo()
 
-	// Setup cloud connector
+	// Setup cloud connector.
 	config, err := cloud.ReadConfig(*cloudstackconfig)
 	if err != nil {
 		logger.Sugar().Errorw("Cannot read CloudStack configuration", "error", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:gocritic
 	}
 	logger.Sugar().Debugf("Successfully read CloudStack configuration %v", *cloudstackconfig)
 	csConnector := cloud.New(config)

@@ -14,7 +14,7 @@ type fakeMounter struct {
 	utilsexec.Interface
 }
 
-// NewFake creates an fake implementation of the
+// NewFake creates a fake implementation of the
 // mount.Interface, to be used in tests.
 func NewFake() Interface {
 	return &fakeMounter{
@@ -30,7 +30,7 @@ func (m *fakeMounter) CleanupMountPoint(path string, extensiveCheck bool) error 
 	return mount.CleanupMountPoint(path, m, extensiveCheck)
 }
 
-func (m *fakeMounter) GetDevicePath(ctx context.Context, volumeID string) (string, error) {
+func (m *fakeMounter) GetDevicePath(_ context.Context, _ string) (string, error) {
 	return "/dev/sdb", nil
 }
 
@@ -38,24 +38,25 @@ func (m *fakeMounter) GetDeviceName(mountPath string) (string, int, error) {
 	return mount.GetDeviceNameFromMount(m, mountPath)
 }
 
-func (*fakeMounter) ExistsPath(filename string) (bool, error) {
+func (*fakeMounter) ExistsPath(_ string) (bool, error) {
 	return true, nil
 }
 
 func (*fakeMounter) MakeDir(pathname string) error {
-	err := os.MkdirAll(pathname, os.FileMode(0755))
+	err := os.MkdirAll(pathname, os.FileMode(0o755))
 	if err != nil {
 		if !os.IsExist(err) {
 			return err
 		}
 	}
+
 	return nil
 }
 
-func (*fakeMounter) MakeFile(pathname string) error {
+func (*fakeMounter) MakeFile(_ string) error {
 	return nil
 }
 
-func (*fakeMounter) NewResizeFs(exec utilsexec.Interface) *mount.ResizeFs {
+func (*fakeMounter) NewResizeFs(_ utilsexec.Interface) *mount.ResizeFs {
 	return mount.NewResizeFs(New())
 }

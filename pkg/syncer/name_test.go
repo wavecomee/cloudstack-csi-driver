@@ -32,7 +32,7 @@ func TestCreateStorageClassName(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.OrigName, func(t *testing.T) {
 			name, err := createStorageClassName(c.OrigName)
-			if err != nil && !c.ShouldErr {
+			if err != nil && !c.ShouldErr { //nolint:gocritic
 				t.Error(err)
 			} else if err == nil && c.ShouldErr {
 				t.Error("Expected a non-nil error; error was nil")

@@ -55,7 +55,7 @@ func (s syncer) Run(ctx context.Context) error {
 	for _, offering := range diskOfferings.DiskOfferings {
 		name, err := s.syncOffering(ctx, offering)
 		if err != nil {
-			err = fmt.Errorf("Error with offering %s: %w", offering.Name, err)
+			err = fmt.Errorf("error with offering %s: %w", offering.Name, err)
 			log.Println(err.Error())
 			errs = append(errs, err)
 		}
@@ -92,7 +92,8 @@ func (s syncer) Run(ctx context.Context) error {
 	if len(errs) == 0 {
 		return nil
 	}
-	return combinedError(errs)
+
+	return combinedErrors(errs)
 }
 
 func (s syncer) syncOffering(ctx context.Context, offering *cloudstack.DiskOffering) (string, error) {
@@ -100,6 +101,7 @@ func (s syncer) syncOffering(ctx context.Context, offering *cloudstack.DiskOffer
 	custom := offering.Iscustomized
 	if !custom {
 		log.Printf("Disk offering \"%s\" has a fixed size: ignoring\n", offeringName)
+
 		return "", nil
 	}
 
@@ -114,9 +116,7 @@ func (s syncer) syncOffering(ctx context.Context, offering *cloudstack.DiskOffer
 	sc, err := s.k8sClient.StorageV1().StorageClasses().Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-
 			// Storage class does not exist; creating it
-
 			log.Printf("Creating storage class %s", name)
 
 			newSc := &storagev1.StorageClass{
@@ -133,8 +133,10 @@ func (s syncer) syncOffering(ctx context.Context, offering *cloudstack.DiskOffer
 				},
 			}
 			_, err = s.k8sClient.StorageV1().StorageClasses().Create(ctx, newSc, metav1.CreateOptions{})
+
 			return name, err
 		}
+
 		return "", err
 	}
 
@@ -155,6 +157,7 @@ func (s syncer) syncOffering(ctx context.Context, offering *cloudstack.DiskOffer
 	if err != nil {
 		// Updates to provisioner, reclaimpolicy, volumeBindingMode and parameters are forbidden
 		log.Printf("Storage class %s exists but it not compatible.", name)
+
 		return name, err
 	}
 
@@ -166,6 +169,7 @@ func (s syncer) syncOffering(ctx context.Context, offering *cloudstack.DiskOffer
 
 		sc.Labels = labels.Merge(existingLabels, s.labelsSet)
 		_, err = s.k8sClient.StorageV1().StorageClasses().Update(ctx, sc, metav1.UpdateOptions{})
+
 		return name, err
 	}
 
@@ -194,24 +198,27 @@ func checkStorageClass(sc *storagev1.StorageClass, expectedOfferingID string, ex
 	}
 
 	if len(errs) > 0 {
-		return combinedError(errs)
+		return combinedErrors(errs)
 	}
+
 	return nil
 }
 
 func toDelete(oldSc, newSc []string) []string {
 	del := make([]string, 0)
-	for _, old := range oldSc {
+	for _, oldVal := range oldSc {
 		var found bool
-		for _, new := range newSc {
-			if new == old {
+		for _, newVal := range newSc {
+			if newVal == oldVal {
 				found = true
+
 				break
 			}
 		}
 		if !found {
-			del = append(del, old)
+			del = append(del, oldVal)
 		}
 	}
+
 	return del
 }

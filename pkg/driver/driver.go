@@ -26,7 +26,7 @@ type cloudstackDriver struct {
 	logger    *zap.Logger
 }
 
-// New instantiates a new CloudStack CSI driver
+// New instantiates a new CloudStack CSI driver.
 func New(endpoint string, csConnector cloud.Interface, mounter mount.Interface, nodeName string, version string, logger *zap.Logger) (Interface, error) {
 	return &cloudstackDriver{
 		endpoint:  endpoint,

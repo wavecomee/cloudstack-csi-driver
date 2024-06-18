@@ -20,11 +20,11 @@ var (
 	kubeconfig       = flag.String("kubeconfig", path.Join(os.Getenv("HOME"), ".kube/config"), "Kubernetes configuration file. Use \"-\" to use in-cluster configuration.")
 	label            = flag.String("label", "app.kubernetes.io/managed-by="+agent, "")
 	namePrefix       = flag.String("namePrefix", "cloudstack-", "")
-	delete           = flag.Bool("delete", false, "Delete")
+	deleteUnused     = flag.Bool("delete", false, "Delete")
 	volumeExpansion  = flag.Bool("volumeExpansion", false, "VolumeExpansion")
 	showVersion      = flag.Bool("version", false, "Show version")
 
-	// Version is set by the build process
+	// Version is set by the build process.
 	version = ""
 )
 
@@ -33,7 +33,8 @@ func main() {
 
 	if *showVersion {
 		baseName := path.Base(os.Args[0])
-		fmt.Println(baseName, version)
+		fmt.Println(baseName, version) //nolint:forbidigo
+
 		return
 	}
 
@@ -43,7 +44,7 @@ func main() {
 		KubeConfig:       *kubeconfig,
 		Label:            *label,
 		NamePrefix:       *namePrefix,
-		Delete:           *delete,
+		Delete:           *deleteUnused,
 		VolumeExpansion:  *volumeExpansion,
 	})
 	if err != nil {

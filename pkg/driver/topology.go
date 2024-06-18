@@ -24,6 +24,7 @@ func NewTopology(t *csi.Topology) (Topology, error) {
 		return Topology{}, errors.New("no zone in topology")
 	}
 	hostID := segments[HostKey]
+
 	return Topology{zoneID, hostID}, nil
 }
 
@@ -34,6 +35,7 @@ func (t Topology) ToCSI() *csi.Topology {
 	if t.HostID != "" {
 		segments[ZoneKey] = t.ZoneID
 	}
+
 	return &csi.Topology{
 		Segments: segments,
 	}
