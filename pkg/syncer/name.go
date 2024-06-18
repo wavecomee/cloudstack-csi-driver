@@ -20,7 +20,7 @@ func createStorageClassName(origName string) (string, error) {
 		return "", err
 	}
 
-	// Replace non alphanumeric characters (except .) by a space
+	// Replace non-alphanumeric characters (except .) by a space
 	nonAlpha := regexp.MustCompile("[^a-zA-Z0-9.]+")
 	name = nonAlpha.ReplaceAllString(name, " ")
 

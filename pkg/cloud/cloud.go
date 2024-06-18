@@ -46,7 +46,7 @@ type VM struct {
 	ZoneID string
 }
 
-// Specific errors
+// Specific errors.
 var (
 	ErrNotFound       = errors.New("not found")
 	ErrTooManyResults = errors.New("too many results")
@@ -60,5 +60,6 @@ type client struct {
 // New creates a new cloud connector, given its configuration.
 func New(config *Config) Interface {
 	csClient := cloudstack.NewAsyncClient(config.APIURL, config.APIKey, config.SecretKey, config.VerifySSL)
+
 	return &client{csClient}
 }

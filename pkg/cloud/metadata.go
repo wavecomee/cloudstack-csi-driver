@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -22,6 +21,7 @@ func (c *client) metadataInstanceID(ctx context.Context) string {
 	// Try a NODE_ID environment variable
 	if envNodeID := os.Getenv("NODE_ID"); envNodeID != "" {
 		slog.Debugf("Found CloudStack VM ID from environment variable NODE_ID: %s", envNodeID)
+
 		return envNodeID
 	}
 
@@ -32,11 +32,10 @@ func (c *client) metadataInstanceID(ctx context.Context) string {
 		ciData, err := c.readCloudInit(ctx, cloudInitInstanceFilePath)
 		if err != nil {
 			slog.Errorf("Cannot read cloud-init instance data: %v", err)
-		} else {
-			if ciData.V1.InstanceID != "" {
-				slog.Debugf("Found CloudStack VM ID from cloud-init: %s", ciData.V1.InstanceID)
-				return ciData.V1.InstanceID
-			}
+		} else if ciData.V1.InstanceID != "" {
+			slog.Debugf("Found CloudStack VM ID from cloud-init: %s", ciData.V1.InstanceID)
+
+			return ciData.V1.InstanceID
 		}
 		slog.Error("cloud-init instance ID is not provided")
 	} else if os.IsNotExist(err) {
@@ -46,6 +45,7 @@ func (c *client) metadataInstanceID(ctx context.Context) string {
 	}
 
 	slog.Debug("CloudStack VM ID not found in meta-data.")
+
 	return ""
 }
 
@@ -62,20 +62,23 @@ type cloudInitV1 struct {
 func (c *client) readCloudInit(ctx context.Context, instanceFilePath string) (*cloudInitInstanceData, error) {
 	slog := ctxzap.Extract(ctx).Sugar()
 
-	b, err := ioutil.ReadFile(instanceFilePath)
+	b, err := os.ReadFile(instanceFilePath)
 	if err != nil {
 		slog.Errorf("Cannot read %s", instanceFilePath)
+
 		return nil, err
 	}
 
 	var data cloudInitInstanceData
 	if err := json.Unmarshal(b, &data); err != nil {
 		slog.Errorf("Cannot parse JSON file %s", instanceFilePath)
+
 		return nil, err
 	}
 
 	if strings.ToLower(data.V1.CloudName) != cloudStackCloudName {
 		slog.Errorf("Cloud-Init cloud name is %s, only %s is supported", data.V1.CloudName, cloudStackCloudName)
+
 		return nil, fmt.Errorf("Cloud-Init cloud name is %s, only %s is supported", data.V1.CloudName, cloudStackCloudName)
 	}
 

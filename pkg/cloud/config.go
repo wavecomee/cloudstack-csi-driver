@@ -17,7 +17,7 @@ type Config struct {
 // csConfig wraps the config for the CloudStack cloud provider.
 // It is taken from https://github.com/apache/cloudstack-kubernetes-provider
 // in order to have the same config in cloudstack-kubernetes-provider
-// and in this cloudstack-csi-driver
+// and in this cloudstack-csi-driver.
 type csConfig struct {
 	Global struct {
 		APIURL      string `gcfg:"api-url"`

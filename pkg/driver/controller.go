@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 
@@ -38,8 +39,7 @@ func NewControllerServer(connector cloud.Interface) csi.ControllerServer {
 }
 
 func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
-
-	// Check arguments
+	// Check arguments.
 
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "Volume name missing in request")
@@ -64,28 +64,30 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	if acquired := cs.volumeLocks.TryAcquire(name); !acquired {
 		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, name)
+
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, name)
 	}
 	defer cs.volumeLocks.Release(name)
 
-	// Check if a volume with that name already exists
-	if vol, err := cs.connector.GetVolumeByName(ctx, name); err == cloud.ErrNotFound {
-		// The volume does not exist
-	} else if err != nil {
-		// Error with CloudStack
-		return nil, status.Errorf(codes.Internal, "CloudStack error: %v", err)
+	// Check if a volume with that name already exists.
+	vol, err := cs.connector.GetVolumeByName(ctx, name)
+	if err != nil {
+		if !errors.Is(err, cloud.ErrNotFound) {
+			// Error with CloudStack
+			return nil, status.Errorf(codes.Internal, "CloudStack error: %v", err)
+		}
 	} else {
 		// The volume exists. Check if it suits the request.
 		if ok, message := checkVolumeSuitable(vol, diskOfferingID, req.GetCapacityRange(), req.GetAccessibilityRequirements()); !ok {
 			return nil, status.Errorf(codes.AlreadyExists, "Volume %v already exists but does not satisfy request: %s", name, message)
 		}
-		// Existing volume is ok
+		// Existing volume is ok.
 		return &csi.CreateVolumeResponse{
 			Volume: &csi.Volume{
 				VolumeId:      vol.ID,
 				CapacityBytes: vol.Size,
 				VolumeContext: req.GetParameters(),
-				// ContentSource: req.GetVolumeContentSource(), TODO: snapshot support
+				// ContentSource: req.GetVolumeContentSource(), TODO: snapshot support.
 				AccessibleTopology: []*csi.Topology{
 					Topology{ZoneID: vol.ZoneID}.ToCSI(),
 				},
@@ -93,19 +95,19 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		}, nil
 	}
 
-	// We have to create the volume
+	// We have to create the volume.
 
-	// Determine volume size using requested capacity range
+	// Determine volume size using requested capacity range.
 	sizeInGB, err := determineSize(req)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	// Determine zone using topology constraints
+	// Determine zone using topology constraints.
 	var zoneID string
 	topologyRequirement := req.GetAccessibilityRequirements()
-	if topologyRequirement == nil || topologyRequirement.GetRequisite() == nil {
-		// No topology requirement. Use random zone
+	if topologyRequirement == nil || topologyRequirement.GetRequisite() == nil { //nolint:nestif
+		// No topology requirement. Use random zone.
 		zones, err := cs.connector.ListZonesID(ctx)
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -114,7 +116,7 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		if n == 0 {
 			return nil, status.Error(codes.Internal, "No zone available")
 		}
-		zoneID = zones[rand.Intn(n)]
+		zoneID = zones[rand.Intn(n)] //nolint:gosec
 	} else {
 		reqTopology := topologyRequirement.GetRequisite()
 		if len(reqTopology) > 1 {
@@ -144,7 +146,7 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 			VolumeId:      volID,
 			CapacityBytes: util.GigaBytesToBytes(sizeInGB),
 			VolumeContext: req.GetParameters(),
-			// ContentSource: req.GetVolumeContentSource(), TODO: snapshot support
+			// ContentSource: req.GetVolumeContentSource(), TODO: snapshot support.
 			AccessibleTopology: []*csi.Topology{
 				Topology{ZoneID: zoneID}.ToCSI(),
 			},
@@ -153,8 +155,8 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 }
 
 func checkVolumeSuitable(vol *cloud.Volume,
-	diskOfferingID string, capRange *csi.CapacityRange, topologyRequirement *csi.TopologyRequirement) (bool, string) {
-
+	diskOfferingID string, capRange *csi.CapacityRange, topologyRequirement *csi.TopologyRequirement,
+) (bool, string) {
 	if vol.DiskOfferingID != diskOfferingID {
 		return false, fmt.Sprintf("Disk offering %s; requested disk offering %s", vol.DiskOfferingID, diskOfferingID)
 	}
@@ -207,6 +209,7 @@ func determineSize(req *csi.CreateVolumeRequest) (int64, error) {
 	if sizeInGB == 0 {
 		sizeInGB = 1
 	}
+
 	return sizeInGB, nil
 }
 
@@ -219,6 +222,7 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 
 	if acquired := cs.volumeLocks.TryAcquire(volumeID); !acquired {
 		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
 	defer cs.volumeLocks.Release(volumeID)
@@ -228,14 +232,15 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	)
 
 	err := cs.connector.DeleteVolume(ctx, volumeID)
-	if err != nil && err != cloud.ErrNotFound {
+	if err != nil && !errors.Is(err, cloud.ErrNotFound) {
 		return nil, status.Errorf(codes.Internal, "Cannot delete volume %s: %s", volumeID, err.Error())
 	}
+
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
 func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
-	// Check arguments
+	// Check arguments.
 
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
@@ -254,7 +259,7 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 	if req.GetVolumeCapability() == nil {
 		return nil, status.Error(codes.InvalidArgument, "Volume capability missing in request")
 	}
-	if req.GetVolumeCapability().AccessMode.Mode != onlyVolumeCapAccessMode.GetMode() {
+	if req.GetVolumeCapability().GetAccessMode().GetMode() != onlyVolumeCapAccessMode.GetMode() {
 		return nil, status.Error(codes.InvalidArgument, "Access mode not accepted")
 	}
 
@@ -263,9 +268,9 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 		"nodeID", nodeID,
 	)
 
-	// Check volume
+	// Check volume.
 	vol, err := cs.connector.GetVolumeByID(ctx, volumeID)
-	if err == cloud.ErrNotFound {
+	if errors.Is(err, cloud.ErrNotFound) {
 		return nil, status.Errorf(codes.NotFound, "Volume %v not found", volumeID)
 	} else if err != nil {
 		// Error with CloudStack
@@ -278,10 +283,11 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 			"nodeID", nodeID,
 			"attached nodeID", vol.VirtualMachineID,
 		)
+
 		return nil, status.Error(codes.AlreadyExists, "Volume already assigned to another node")
 	}
 
-	if _, err := cs.connector.GetVMByID(ctx, nodeID); err == cloud.ErrNotFound {
+	if _, err := cs.connector.GetVMByID(ctx, nodeID); errors.Is(err, cloud.ErrNotFound) {
 		return nil, status.Errorf(codes.NotFound, "VM %v not found", nodeID)
 	} else if err != nil {
 		// Error with CloudStack
@@ -289,7 +295,7 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 	}
 
 	if vol.VirtualMachineID == nodeID {
-		// volume already attached
+		// volume already attached.
 		ctxzap.Extract(ctx).Sugar().Infow("Volume already attached to node",
 			"volumeID", volumeID,
 			"nodeID", nodeID,
@@ -298,6 +304,7 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 		publishContext := map[string]string{
 			deviceIDContextKey: vol.DeviceID,
 		}
+
 		return &csi.ControllerPublishVolumeResponse{PublishContext: publishContext}, nil
 	}
 
@@ -319,11 +326,12 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 	publishContext := map[string]string{
 		deviceIDContextKey: deviceID,
 	}
+
 	return &csi.ControllerPublishVolumeResponse{PublishContext: publishContext}, nil
 }
 
 func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
-	// Check arguments
+	// Check arguments.
 
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
@@ -331,10 +339,10 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 	volumeID := req.GetVolumeId()
 	nodeID := req.GetNodeId()
 
-	// Check volume
-	if vol, err := cs.connector.GetVolumeByID(ctx, volumeID); err == cloud.ErrNotFound {
+	// Check volume.
+	if vol, err := cs.connector.GetVolumeByID(ctx, volumeID); errors.Is(err, cloud.ErrNotFound) {
 		// Volume does not exist in CloudStack. We can safely assume this volume is no longer attached
-		// The spec requires us to return OK here
+		// The spec requires us to return OK here.
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	} else if err != nil {
 		// Error with CloudStack
@@ -344,13 +352,14 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
 
-	// Check VM existence
-	if _, err := cs.connector.GetVMByID(ctx, nodeID); err == cloud.ErrNotFound {
-		// volumes cannot be attached to deleted VMs
+	// Check VM existence.
+	if _, err := cs.connector.GetVMByID(ctx, nodeID); errors.Is(err, cloud.ErrNotFound) {
+		// volumes cannot be attached to deleted VMs.
 		ctxzap.Extract(ctx).Sugar().Warnw("VM not found, marking ControllerUnpublishVolume successful",
 			"volumeID", volumeID,
 			"nodeID", nodeID,
 		)
+
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	} else if err != nil {
 		// Error with CloudStack
@@ -386,7 +395,7 @@ func (cs *controllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 		return nil, status.Error(codes.InvalidArgument, "Volume capabilities not provided")
 	}
 
-	if _, err := cs.connector.GetVolumeByID(ctx, volumeID); err == cloud.ErrNotFound {
+	if _, err := cs.connector.GetVolumeByID(ctx, volumeID); errors.Is(err, cloud.ErrNotFound) {
 		return nil, status.Errorf(codes.NotFound, "Volume %v not found", volumeID)
 	} else if err != nil {
 		// Error with CloudStack
@@ -402,7 +411,8 @@ func (cs *controllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 			VolumeContext:      req.GetVolumeContext(),
 			VolumeCapabilities: volCaps,
 			Parameters:         req.GetParameters(),
-		}}, nil
+		},
+	}, nil
 }
 
 func isValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
@@ -411,6 +421,7 @@ func isValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -425,20 +436,20 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 	}
 	err := expandVolumeLock.GetExpandLock(volumeID)
 	if err != nil {
-
 		logger.Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
 	defer expandVolumeLock.ReleaseExpandLock(volumeID)
 
-	cap := req.GetCapacityRange()
-	if cap == nil {
+	capRange := req.GetCapacityRange()
+	if capRange == nil {
 		return nil, status.Error(codes.InvalidArgument, "Capacity range not provided")
 	}
 
-	volSizeBytes := cap.GetRequiredBytes()
+	volSizeBytes := capRange.GetRequiredBytes()
 	volSizeGB := util.RoundUpBytesToGB(volSizeBytes)
-	maxVolSize := cap.GetLimitBytes()
+	maxVolSize := capRange.GetLimitBytes()
 
 	if maxVolSize > 0 && maxVolSize < util.GigaBytesToBytes(volSizeGB) {
 		return nil, status.Error(codes.OutOfRange, "Volume size exceeds the limit specified")
@@ -446,21 +457,21 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 
 	volume, err := cs.connector.GetVolumeByID(ctx, volumeID)
 	if err != nil {
-		if err == cloud.ErrNotFound {
+		if errors.Is(err, cloud.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "Volume %v not found", volumeID)
 		}
+
 		return nil, status.Error(codes.Internal, fmt.Sprintf("GetVolume failed with error %v", err))
 	}
 
 	if volume.Size >= util.GigaBytesToBytes(volSizeGB) {
-		// A volume was already resized
+		// A volume was already resized.
 		logger.Infof("Volume %q has been already expanded to %d. requested %d", volumeID, volume.Size, volSizeGB)
 
 		return &csi.ControllerExpandVolumeResponse{
 			CapacityBytes:         volume.Size,
 			NodeExpansionRequired: true,
 		}, nil
-
 	}
 	err = cs.connector.ExpandVolume(ctx, volumeID, volSizeGB)
 	if err != nil {
@@ -478,7 +489,7 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 	}, nil
 }
 
-func (cs *controllerServer) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
+func (cs *controllerServer) ControllerGetCapabilities(_ context.Context, _ *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
 	return &csi.ControllerGetCapabilitiesResponse{
 		Capabilities: []*csi.ControllerServiceCapability{
 			{

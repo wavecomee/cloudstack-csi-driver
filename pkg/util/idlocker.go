@@ -82,7 +82,7 @@ type OperationLock struct {
 	//
 	// example map[restore][xxx-xxx-xxx-xxx]1
 	// map[restore][xxx-xxx-xxx-xxx]2
-	// the counter value will be increased for allowed parallel operations and
+	// the counter value will be increased for allowed parallel operations, and
 	// it will be decreased when the operation is completed, when the counter
 	// value goes to zero the `xxx-xxx-xxx` key will be removed from the
 	// operation map.
@@ -90,7 +90,7 @@ type OperationLock struct {
 	// lock to avoid concurrent operation on map
 	mux sync.Mutex
 	// context for logging
-	ctx context.Context
+	ctx context.Context //nolint:containedctx
 }
 
 // NewOperationLock returns new OperationLock.
@@ -117,7 +117,7 @@ func (ol *OperationLock) tryAcquire(op operation, volumeID string) error {
 	case createOp:
 		// snapshot controller make sure the pvc which is the source for the
 		// snapshot request won't get deleted while snapshot is getting created,
-		// so we dont need to check for any ongoing delete operation here on the
+		// so we don't need to check for any ongoing delete operation here on the
 		// volume.
 		// increment the counter for snapshot create operation
 		val := ol.locks[createOp][volumeID]

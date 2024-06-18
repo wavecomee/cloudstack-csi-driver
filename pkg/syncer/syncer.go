@@ -60,6 +60,7 @@ func createK8sClient(kubeconfig, agent string) (*kubernetes.Clientset, error) {
 		}
 	}
 	config.UserAgent = agent
+
 	return kubernetes.NewForConfig(config)
 }
 
@@ -69,6 +70,7 @@ func createCloudStackClient(cloudstackconfig string) (*cloudstack.CloudStackClie
 		return nil, err
 	}
 	client := cloudstack.NewAsyncClient(config.APIURL, config.APIKey, config.SecretKey, config.VerifySSL)
+
 	return client, nil
 }
 
@@ -83,7 +85,8 @@ func createLabelsSet(label string) labels.Set {
 		}
 		m[key] = value
 	}
-	return labels.Set(m)
+
+	return m
 }
 
 // New creates a new Syncer instance.

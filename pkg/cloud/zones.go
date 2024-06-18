@@ -7,7 +7,7 @@ import (
 )
 
 func (c *client) ListZonesID(ctx context.Context) ([]string, error) {
-	result := []string{}
+	result := make([]string, 0)
 	p := c.Zone.NewListZonesParams()
 	p.SetAvailable(true)
 	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListZones", "params", map[string]string{
@@ -20,5 +20,6 @@ func (c *client) ListZonesID(ctx context.Context) ([]string, error) {
 	for _, zone := range r.Zones {
 		result = append(result, zone.Id)
 	}
+
 	return result, nil
 }

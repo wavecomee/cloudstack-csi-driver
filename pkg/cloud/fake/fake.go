@@ -35,6 +35,7 @@ func New() cloud.Interface {
 		ID:     "0d7107a3-94d2-44e7-89b8-8930881309a5",
 		ZoneID: zoneID,
 	}
+
 	return &fakeConnector{
 		node:          node,
 		volumesByID:   map[string]cloud.Volume{volume.ID: volume},
@@ -42,38 +43,41 @@ func New() cloud.Interface {
 	}
 }
 
-func (f *fakeConnector) GetVMByID(ctx context.Context, vmID string) (*cloud.VM, error) {
+func (f *fakeConnector) GetVMByID(_ context.Context, vmID string) (*cloud.VM, error) {
 	if vmID == f.node.ID {
 		return f.node, nil
 	}
+
 	return nil, cloud.ErrNotFound
 }
 
-func (f *fakeConnector) GetNodeInfo(ctx context.Context, vmName string) (*cloud.VM, error) {
+func (f *fakeConnector) GetNodeInfo(_ context.Context, _ string) (*cloud.VM, error) {
 	return f.node, nil
 }
 
-func (f *fakeConnector) ListZonesID(ctx context.Context) ([]string, error) {
+func (f *fakeConnector) ListZonesID(_ context.Context) ([]string, error) {
 	return []string{zoneID}, nil
 }
 
-func (f *fakeConnector) GetVolumeByID(ctx context.Context, volumeID string) (*cloud.Volume, error) {
+func (f *fakeConnector) GetVolumeByID(_ context.Context, volumeID string) (*cloud.Volume, error) {
 	vol, ok := f.volumesByID[volumeID]
 	if ok {
 		return &vol, nil
 	}
+
 	return nil, cloud.ErrNotFound
 }
 
-func (f *fakeConnector) GetVolumeByName(ctx context.Context, name string) (*cloud.Volume, error) {
+func (f *fakeConnector) GetVolumeByName(_ context.Context, name string) (*cloud.Volume, error) {
 	vol, ok := f.volumesByName[name]
 	if ok {
 		return &vol, nil
 	}
+
 	return nil, cloud.ErrNotFound
 }
 
-func (f *fakeConnector) CreateVolume(ctx context.Context, diskOfferingID, zoneID, name string, sizeInGB int64) (string, error) {
+func (f *fakeConnector) CreateVolume(_ context.Context, diskOfferingID, zoneID, name string, sizeInGB int64) (string, error) {
 	id, _ := uuid.GenerateUUID()
 	vol := cloud.Volume{
 		ID:             id,
@@ -84,37 +88,39 @@ func (f *fakeConnector) CreateVolume(ctx context.Context, diskOfferingID, zoneID
 	}
 	f.volumesByID[vol.ID] = vol
 	f.volumesByName[vol.Name] = vol
+
 	return vol.ID, nil
 }
 
-func (f *fakeConnector) DeleteVolume(ctx context.Context, id string) error {
+func (f *fakeConnector) DeleteVolume(_ context.Context, id string) error {
 	if vol, ok := f.volumesByID[id]; ok {
 		name := vol.Name
 		delete(f.volumesByName, name)
 	}
 	delete(f.volumesByID, id)
+
 	return nil
 }
 
-func (f *fakeConnector) AttachVolume(ctx context.Context, volumeID, vmID string) (string, error) {
+func (f *fakeConnector) AttachVolume(_ context.Context, _, _ string) (string, error) {
 	return "1", nil
 }
 
-func (f *fakeConnector) DetachVolume(ctx context.Context, volumeID string) error {
+func (f *fakeConnector) DetachVolume(_ context.Context, _ string) error {
 	return nil
 }
-func (f *fakeConnector) ExpandVolume(ctx context.Context, volumeID string, newSizeInGB int64) error {
+
+func (f *fakeConnector) ExpandVolume(_ context.Context, volumeID string, newSizeInGB int64) error {
 	if vol, ok := f.volumesByID[volumeID]; ok {
 		newSizeInBytes := newSizeInGB * 1024 * 1024 * 1024
 		if newSizeInBytes > vol.Size {
 			vol.Size = newSizeInBytes
 			f.volumesByID[volumeID] = vol
 			f.volumesByName[vol.Name] = vol
-			return nil
-		} else {
-			return nil
 		}
-	} else {
+
 		return nil
 	}
+
+	return cloud.ErrNotFound
 }

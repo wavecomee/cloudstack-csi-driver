@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 )
 
 const (
-	// default file system type to be used when it is not provided
+	// default file system type to be used when it is not provided.
 	defaultFsType = "ext4"
 )
 
@@ -34,6 +35,7 @@ func NewNodeServer(connector cloud.Interface, mounter mount.Interface, nodeName 
 	if mounter == nil {
 		mounter = mount.New()
 	}
+
 	return &nodeServer{
 		connector:   connector,
 		mounter:     mounter,
@@ -43,7 +45,6 @@ func NewNodeServer(connector cloud.Interface, mounter mount.Interface, nodeName 
 }
 
 func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
-
 	// Check parameters
 
 	volumeID := req.GetVolumeId()
@@ -66,13 +67,15 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 
 	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
 		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
 	defer ns.volumeLocks.Release(volumeID)
 
 	// Now, find the device path
 
-	deviceID := req.PublishContext[deviceIDContextKey]
+	pubCtx := req.GetPublishContext()
+	deviceID := pubCtx[deviceIDContextKey]
 
 	devicePath, err := ns.mounter.GetDevicePath(ctx, volumeID)
 	if err != nil {
@@ -128,6 +131,7 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	}
+
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
@@ -140,6 +144,7 @@ func hasMountOption(options []string, opt string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -158,16 +163,17 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 
 	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
 		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
 	defer ns.volumeLocks.Release(volumeID)
 
 	notMnt, err := ns.mounter.IsLikelyNotMountPoint(target)
-
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, status.Error(codes.NotFound, "Target path not found")
 		}
+
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	if notMnt {
@@ -183,14 +189,14 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		return nil, status.Errorf(codes.Internal, "failed to unmount target %q: %v", target, err)
 	}
 
-	ctxzap.Extract(ctx).Sugar().Infow("NodeUnstageVolume: unmount succesfull",
+	ctxzap.Extract(ctx).Sugar().Infow("NodeUnstageVolume: unmount successful",
 		"target", target,
 	)
 
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
-func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) { //nolint:gocognit
 	// Check arguments
 	if req.GetVolumeCapability() == nil {
 		return nil, status.Error(codes.InvalidArgument, "Volume capability missing in request")
@@ -227,7 +233,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	// Considering kubelet ensures the stage and publish operations
 	// are serialized, we don't need any extra locking in NodePublishVolume.
 
-	if req.GetVolumeCapability().GetMount() != nil {
+	if req.GetVolumeCapability().GetMount() != nil { //nolint:nestif
 		source := req.GetStagingTargetPath()
 
 		notMnt, err := ns.mounter.IsLikelyNotMountPoint(targetPath)
@@ -245,6 +251,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 				"source", source,
 				"targetPath", targetPath,
 			)
+
 			return &csi.NodePublishVolumeResponse{}, nil
 		}
 
@@ -267,7 +274,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		}
 	}
 
-	if req.GetVolumeCapability().GetBlock() != nil {
+	if req.GetVolumeCapability().GetBlock() != nil { //nolint:nestif
 		volumeID := req.GetVolumeId()
 
 		devicePath, err := ns.mounter.GetDevicePath(ctx, volumeID)
@@ -291,6 +298,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			if removeErr := os.Remove(targetPath); removeErr != nil {
 				return nil, status.Errorf(codes.Internal, "Could not remove mount target %q: %v", targetPath, removeErr)
 			}
+
 			return nil, status.Errorf(codes.Internal, "Could not create file %q: %v", targetPath, err)
 		}
 
@@ -323,7 +331,7 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 	// Considering that kubelet ensures the stage and publish operations
 	// are serialized, we don't need any extra locking in NodeUnpublishVolume.
 
-	if _, err := ns.connector.GetVolumeByID(ctx, volumeID); err == cloud.ErrNotFound {
+	if _, err := ns.connector.GetVolumeByID(ctx, volumeID); errors.Is(err, cloud.ErrNotFound) {
 		return nil, status.Errorf(codes.NotFound, "Volume %v not found", volumeID)
 	} else if err != nil {
 		// Error with CloudStack
@@ -348,7 +356,7 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+func (ns *nodeServer) NodeGetInfo(ctx context.Context, _ *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	if ns.nodeName == "" {
 		return nil, status.Error(codes.Internal, "Missing node name")
 	}
@@ -365,6 +373,7 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 	}
 
 	topology := Topology{ZoneID: vm.ZoneID}
+
 	return &csi.NodeGetInfoResponse{
 		NodeId:             vm.ID,
 		AccessibleTopology: topology.ToCSI(),
@@ -372,7 +381,6 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 }
 
 func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
-
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
@@ -389,18 +397,20 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 	)
 	volCap := req.GetVolumeCapability()
 	if volCap != nil {
-		switch volCap.GetAccessType().(type) {
+		switch volCap.GetAccessType().(type) { //nolint:gocritic
 		case *csi.VolumeCapability_Block:
 			ctxzap.Extract(ctx).Sugar().Info("filesystem expansion is skipped for block volumes")
+
 			return &csi.NodeExpandVolumeResponse{}, nil
 		}
 	}
 
 	_, err := ns.connector.GetVolumeByID(ctx, volumeID)
 	if err != nil {
-		if err == cloud.ErrNotFound {
+		if errors.Is(err, cloud.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, fmt.Sprintf("Volume with ID %s not found", volumeID))
 		}
+
 		return nil, status.Error(codes.Internal, fmt.Sprintf("NodeExpandVolume failed with error %v", err))
 	}
 
@@ -422,10 +432,11 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 	if _, err := r.Resize(devicePath, volumePath); err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not resize volume %q:  %v", volumeID, err)
 	}
+
 	return &csi.NodeExpandVolumeResponse{}, nil
 }
 
-func (ns *nodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+func (ns *nodeServer) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
 	return &csi.NodeGetCapabilitiesResponse{
 		Capabilities: []*csi.NodeServiceCapability{
 			{

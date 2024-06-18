@@ -4,31 +4,34 @@ issues:
   max-same-issues: 0 # disable
 
 linters-settings:
-
-  staticcheck:
-    go: "1.15"
-    checks: [ "all" ]
-
-  stylecheck:
-    go: "1.15"
-    checks: [ "all" ]
-
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/leaseweb/cloudstack-csi-driver)
   goimports:
-    local-prefixes: github.com/apalia/cloudstack-csi-driver
+    local-prefixes: github.com/leaseweb/cloudstack-csi-driver
 
   misspell:
     locale: US
 
 linters:
-  disable-all: true
-  enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - stylecheck
-    - goimports
-    - typecheck
-    - unused
-    - misspell
+  enable-all: true
+  disable:
+    - cyclop
+    - depguard
+    - err113
+    - exhaustruct
+    - funlen
+    - gochecknoglobals
+    - gomnd
+    - inamedparam
+    - ireturn
+    - lll
+    - mnd
+    - paralleltest
+    - tagliatelle
+    - testpackage
+    - varnamelen
+    - wrapcheck
+    - wsl

@@ -2,12 +2,13 @@ package syncer
 
 import "fmt"
 
-type combinedError []error
+type combinedErrors []error
 
-func (errs combinedError) Error() string {
+func (errs combinedErrors) Error() string {
 	err := "Collected errors:\n"
 	for i, e := range errs {
 		err += fmt.Sprintf("\tError %d: %s\n", i, e.Error())
 	}
+
 	return err
 }

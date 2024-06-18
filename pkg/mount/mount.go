@@ -5,7 +5,6 @@ package mount
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,9 +72,11 @@ func (m *mounter) GetDevicePath(ctx context.Context, volumeID string) (string, e
 		}
 		if path != "" {
 			devicePath = path
+
 			return true, nil
 		}
 		m.probeVolume(ctx)
+
 		return false, nil
 	})
 
@@ -84,6 +85,7 @@ func (m *mounter) GetDevicePath(ctx context.Context, volumeID string) (string, e
 	} else if devicePath == "" {
 		return "", fmt.Errorf("device path was empty for volumeID: %q", volumeID)
 	}
+
 	return devicePath, nil
 }
 
@@ -100,19 +102,20 @@ func (m *mounter) getDevicePathBySerialID(volumeID string) (string, error) {
 			return "", err
 		}
 	}
+
 	return "", nil
 }
 
 func (m *mounter) probeVolume(ctx context.Context) {
 	log := ctxzap.Extract(ctx).Sugar()
-	log.Debug("Scaning SCSI host...")
+	log.Debug("Scanning SCSI host...")
 
 	scsiPath := "/sys/class/scsi_host/"
-	if dirs, err := ioutil.ReadDir(scsiPath); err == nil {
+	if dirs, err := os.ReadDir(scsiPath); err == nil {
 		for _, f := range dirs {
 			name := scsiPath + f.Name() + "/scan"
 			data := []byte("- - -")
-			if err = ioutil.WriteFile(name, data, 0666); err != nil {
+			if err = os.WriteFile(name, data, 0o666); err != nil { //nolint:gosec
 				log.Warnf("Failed to rescan scsi host %s", name)
 			}
 		}
@@ -142,6 +145,7 @@ func diskUUIDToSerial(uuid string) string {
 	if len(uuidWithoutHyphen) < 20 {
 		return uuidWithoutHyphen
 	}
+
 	return uuidWithoutHyphen[:20]
 }
 
@@ -151,21 +155,23 @@ func (*mounter) ExistsPath(filename string) (bool, error) {
 	} else if err != nil {
 		return false, err
 	}
+
 	return true, nil
 }
 
 func (*mounter) MakeDir(pathname string) error {
-	err := os.MkdirAll(pathname, os.FileMode(0755))
+	err := os.MkdirAll(pathname, os.FileMode(0o755))
 	if err != nil {
 		if !os.IsExist(err) {
 			return err
 		}
 	}
+
 	return nil
 }
 
 func (*mounter) MakeFile(pathname string) error {
-	f, err := os.OpenFile(pathname, os.O_CREATE, os.FileMode(0644))
+	f, err := os.OpenFile(pathname, os.O_CREATE, os.FileMode(0o644))
 	if err != nil {
 		if !os.IsExist(err) {
 			return err
@@ -174,9 +180,10 @@ func (*mounter) MakeFile(pathname string) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
+
 	return nil
 }
 
-func (*mounter) NewResizeFs(exec exec.Interface) *mount.ResizeFs {
+func (*mounter) NewResizeFs(_ exec.Interface) *mount.ResizeFs {
 	return mount.NewResizeFs(New())
 }
