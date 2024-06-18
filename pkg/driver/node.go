@@ -224,11 +224,8 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		deviceID = req.GetPublishContext()[deviceIDContextKey]
 	}
 
-	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
-		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
-		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
-	}
-	defer ns.volumeLocks.Release(volumeID)
+	// Considering kubelet ensures the stage and publish operations
+	// are serialized, we don't need any extra locking in NodePublishVolume.
 
 	if req.GetVolumeCapability().GetMount() != nil {
 		source := req.GetStagingTargetPath()
@@ -323,11 +320,8 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 		return nil, status.Error(codes.InvalidArgument, "Target path missing in request")
 	}
 
-	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
-		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
-		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
-	}
-	defer ns.volumeLocks.Release(volumeID)
+	// Considering that kubelet ensures the stage and publish operations
+	// are serialized, we don't need any extra locking in NodeUnpublishVolume.
 
 	if _, err := ns.connector.GetVolumeByID(ctx, volumeID); err == cloud.ErrNotFound {
 		return nil, status.Errorf(codes.NotFound, "Volume %v not found", volumeID)
