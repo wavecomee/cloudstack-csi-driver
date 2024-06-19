@@ -45,7 +45,8 @@ spec:
           args:
             - "--endpoint=$(CSI_ENDPOINT)"
             - "--cloudstackconfig=$(CLOUD_CONFIG)"
-            - "--debug"
+            - "--logging-format={{ .Values.logFormat }}"
+            - "--v={{ .Values.logVerbosityLevel }}"
             {{- if .Values.controller.csiDriverController.extraArgs }}
             {{- with .Values.controller.csiDriverController.extraArgs }}
             {{- tpl . $ | trim | nindent 12 }}
@@ -77,7 +78,7 @@ spec:
           image: "{{ .Values.controller.provisioner.image.repository }}:{{ .Values.controller.provisioner.image.tag }}"
           imagePullPolicy: {{ .Values.controller.provisioner.image.pullPolicy }}
           args:
-            - "-v={{ .Values.logVerbosityLevel }}"
+            - "--v={{ .Values.logVerbosityLevel }}"
             - "--csi-address=$(ADDRESS)"
             - "--timeout={{ .Values.timeout }}"
             - "--feature-gates=Topology={{ .Values.controller.provisioner.topology }}"
@@ -110,7 +111,7 @@ spec:
           image: "{{ .Values.controller.attacher.image.repository }}:{{ .Values.controller.attacher.image.tag }}"
           imagePullPolicy: {{ .Values.controller.attacher.image.pullPolicy }}
           args:
-            - "-v={{ .Values.logVerbosityLevel }}"
+            - "--v={{ .Values.logVerbosityLevel }}"
             - "--csi-address=$(ADDRESS)"
             - "--timeout={{ .Values.timeout }}"
             - "--default-fstype=ext4"
@@ -140,7 +141,7 @@ spec:
           image: "{{ .Values.controller.resizer.image.repository }}:{{ .Values.controller.resizer.image.tag }}"
           imagePullPolicy: {{ .Values.controller.resizer.image.pullPolicy }}
           args:
-            - "-v={{ .Values.logVerbosityLevel }}"
+            - "--v={{ .Values.logVerbosityLevel }}"
             - "--csi-address=$(ADDRESS)"
             - "--timeout={{ .Values.timeout }}"
             {{- if $enableLeaderElection }}
@@ -170,7 +171,7 @@ spec:
           image: "{{ .Values.livenessProbe.image.repository }}:{{ .Values.livenessProbe.image.tag }}"
           imagePullPolicy: {{ .Values.livenessProbe.image.pullPolicy }}
           args:
-            - "-v={{ .Values.logVerbosityLevel }}"
+            - "--v={{ .Values.logVerbosityLevel }}"
             - "--csi-address=$(ADDRESS)"
             {{- if .Values.livenessProbe.extraArgs }}
             {{- with .Values.livenessProbe.extraArgs }}

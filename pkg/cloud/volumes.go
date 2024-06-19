@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"k8s.io/klog/v2"
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/util"
 )
@@ -38,9 +38,10 @@ func (c *client) listVolumes(p *cloudstack.ListVolumesParams) (*Volume, error) {
 }
 
 func (c *client) GetVolumeByID(ctx context.Context, volumeID string) (*Volume, error) {
+	logger := klog.FromContext(ctx)
 	p := c.Volume.NewListVolumesParams()
 	p.SetId(volumeID)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListVolumes", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "ListVolumes", "params", map[string]string{
 		"id": volumeID,
 	})
 
@@ -48,9 +49,10 @@ func (c *client) GetVolumeByID(ctx context.Context, volumeID string) (*Volume, e
 }
 
 func (c *client) GetVolumeByName(ctx context.Context, name string) (*Volume, error) {
+	logger := klog.FromContext(ctx)
 	p := c.Volume.NewListVolumesParams()
 	p.SetName(name)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListVolumes", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "ListVolumes", "params", map[string]string{
 		"name": name,
 	})
 
@@ -58,12 +60,13 @@ func (c *client) GetVolumeByName(ctx context.Context, name string) (*Volume, err
 }
 
 func (c *client) CreateVolume(ctx context.Context, diskOfferingID, zoneID, name string, sizeInGB int64) (string, error) {
+	logger := klog.FromContext(ctx)
 	p := c.Volume.NewCreateVolumeParams()
 	p.SetDiskofferingid(diskOfferingID)
 	p.SetZoneid(zoneID)
 	p.SetName(name)
 	p.SetSize(sizeInGB)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "CreateVolume", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "CreateVolume", "params", map[string]string{
 		"diskofferingid": diskOfferingID,
 		"zoneid":         zoneID,
 		"name":           name,
@@ -78,8 +81,9 @@ func (c *client) CreateVolume(ctx context.Context, diskOfferingID, zoneID, name 
 }
 
 func (c *client) DeleteVolume(ctx context.Context, id string) error {
+	logger := klog.FromContext(ctx)
 	p := c.Volume.NewDeleteVolumeParams(id)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "DeleteVolume", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "DeleteVolume", "params", map[string]string{
 		"id": id,
 	})
 	_, err := c.Volume.DeleteVolume(p)
@@ -92,8 +96,9 @@ func (c *client) DeleteVolume(ctx context.Context, id string) error {
 }
 
 func (c *client) AttachVolume(ctx context.Context, volumeID, vmID string) (string, error) {
+	logger := klog.FromContext(ctx)
 	p := c.Volume.NewAttachVolumeParams(volumeID, vmID)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "AttachVolume", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "AttachVolume", "params", map[string]string{
 		"id":               volumeID,
 		"virtualmachineid": vmID,
 	})
@@ -106,9 +111,10 @@ func (c *client) AttachVolume(ctx context.Context, volumeID, vmID string) (strin
 }
 
 func (c *client) DetachVolume(ctx context.Context, volumeID string) error {
+	logger := klog.FromContext(ctx)
 	p := c.Volume.NewDetachVolumeParams()
 	p.SetId(volumeID)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "DetachVolume", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "DetachVolume", "params", map[string]string{
 		"id": volumeID,
 	})
 	_, err := c.Volume.DetachVolume(p)
@@ -118,6 +124,7 @@ func (c *client) DetachVolume(ctx context.Context, volumeID string) error {
 
 // ExpandVolume expands the volume to new size.
 func (c *client) ExpandVolume(ctx context.Context, volumeID string, newSizeInGB int64) error {
+	logger := klog.FromContext(ctx)
 	volume, _, err := c.Volume.GetVolumeByID(volumeID)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve volume '%s': %w", volumeID, err)
@@ -131,7 +138,7 @@ func (c *client) ExpandVolume(ctx context.Context, volumeID string, newSizeInGB 
 	p := c.Volume.NewResizeVolumeParams(volumeID)
 	p.SetId(volumeID)
 	p.SetSize(newSizeInGB)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ExpandVolume", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "ExpandVolume", "params", map[string]string{
 		"name":           volumeName,
 		"volumeid":       volumeID,
 		"current_size":   strconv.FormatInt(currentSizeInGB, 10),

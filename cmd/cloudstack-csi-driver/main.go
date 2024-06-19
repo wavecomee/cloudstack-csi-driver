@@ -6,13 +6,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"path"
 
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"k8s.io/component-base/featuregate"
+	"k8s.io/component-base/logs"
+	logsapi "k8s.io/component-base/logs/api/v1"
+	"k8s.io/component-base/logs/json"
+	"k8s.io/klog/v2"
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/driver"
@@ -22,65 +26,58 @@ var (
 	endpoint         = flag.String("endpoint", "unix:///tmp/csi.sock", "CSI endpoint")
 	cloudstackconfig = flag.String("cloudstackconfig", "./cloud-config", "CloudStack configuration file")
 	nodeName         = flag.String("nodeName", "", "Node name")
-	debug            = flag.Bool("debug", false, "Enable debug logging")
 	showVersion      = flag.Bool("version", false, "Show version")
 
 	// Version is set by the build process.
-	version  = ""
-	isDevEnv = false
+	version = ""
 )
 
 func main() {
+	if err := logsapi.RegisterLogFormat(logsapi.JSONLogFormat, json.Factory{}, logsapi.LoggingBetaOptions); err != nil {
+		klog.ErrorS(err, "failed to register JSON log format")
+	}
+
+	fg := featuregate.NewFeatureGate()
+	err := logsapi.AddFeatureGates(fg)
+	if err != nil {
+		klog.ErrorS(err, "failed to add feature gates")
+	}
+
+	c := logsapi.NewLoggingConfiguration()
+	logsapi.AddGoFlags(c, flag.CommandLine)
 	flag.Parse()
+	logs.InitLogs()
+	logger := klog.Background()
+	if err = logsapi.ValidateAndApply(c, fg); err != nil {
+		logger.Error(err, "LoggingConfiguration is invalid")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
 
 	if *showVersion {
 		baseName := path.Base(os.Args[0])
 		fmt.Println(baseName, version) //nolint:forbidigo
-
-		return
+		os.Exit(0)
 	}
-
-	if version == "" {
-		isDevEnv = true
-	}
-
-	run()
-	os.Exit(0)
-}
-
-func run() {
-	// Setup logging.
-	var logConfig zap.Config
-	if isDevEnv {
-		logConfig = zap.NewDevelopmentConfig()
-	} else {
-		logConfig = zap.NewProductionConfig()
-	}
-	if *debug {
-		logConfig.Level.SetLevel(zapcore.DebugLevel)
-	}
-	logger, _ := logConfig.Build()
-	defer func() { _ = logger.Sync() }()
-	undo := zap.ReplaceGlobals(logger)
-	defer undo()
 
 	// Setup cloud connector.
 	config, err := cloud.ReadConfig(*cloudstackconfig)
 	if err != nil {
-		logger.Sugar().Errorw("Cannot read CloudStack configuration", "error", err)
-		os.Exit(1) //nolint:gocritic
+		logger.Error(err, "Cannot read CloudStack configuration")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
-	logger.Sugar().Debugf("Successfully read CloudStack configuration %v", *cloudstackconfig)
+	logger.Info("Successfully read CloudStack configuration", "cloudstackconfig", *cloudstackconfig)
+
+	ctx := klog.NewContext(context.Background(), logger)
 	csConnector := cloud.New(config)
 
-	d, err := driver.New(*endpoint, csConnector, nil, *nodeName, version, logger)
+	d, err := driver.New(*endpoint, csConnector, nil, *nodeName, version)
 	if err != nil {
-		logger.Sugar().Errorw("Failed to initialize driver", "error", err)
-		os.Exit(1)
+		logger.Error(err, "Failed to initialize driver")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	if err = d.Run(); err != nil {
-		logger.Sugar().Errorw("Server error", "error", err)
-		os.Exit(1)
+	if err = d.Run(ctx); err != nil {
+		logger.Error(err, "Failed to run driver")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 }

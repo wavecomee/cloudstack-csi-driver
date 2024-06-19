@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -16,35 +17,36 @@ const (
 )
 
 func (c *client) metadataInstanceID(ctx context.Context) string {
-	slog := ctxzap.Extract(ctx).Sugar()
+	logger := klog.FromContext(ctx)
+	logger.V(4).Info("Attempting to retrieve metadata from envvar NODE_ID")
 
 	// Try a NODE_ID environment variable
 	if envNodeID := os.Getenv("NODE_ID"); envNodeID != "" {
-		slog.Debugf("Found CloudStack VM ID from environment variable NODE_ID: %s", envNodeID)
+		logger.V(4).Info("Found CloudStack VM ID from envvar NODE_ID", "nodeID", envNodeID)
 
 		return envNodeID
 	}
 
 	// Try cloud-init
-	slog.Debug("Try with cloud-init")
+	logger.V(4).Info("Environment variable NODE_ID not found, trying with cloud-init")
 	if _, err := os.Stat(cloudInitInstanceFilePath); err == nil {
-		slog.Debugf("File %s exists", cloudInitInstanceFilePath)
+		logger.V(4).Info("File " + cloudInitInstanceFilePath + " exists")
 		ciData, err := c.readCloudInit(ctx, cloudInitInstanceFilePath)
 		if err != nil {
-			slog.Errorf("Cannot read cloud-init instance data: %v", err)
+			logger.Error(err, "Cannot read cloud-init instance data")
 		} else if ciData.V1.InstanceID != "" {
-			slog.Debugf("Found CloudStack VM ID from cloud-init: %s", ciData.V1.InstanceID)
+			logger.V(4).Info("Found CloudStack VM ID from cloud-init", "nodeID", ciData.V1.InstanceID)
 
 			return ciData.V1.InstanceID
 		}
 		slog.Error("cloud-init instance ID is not provided")
 	} else if os.IsNotExist(err) {
-		slog.Debugf("File %s does not exist", cloudInitInstanceFilePath)
+		logger.V(4).Info("File " + cloudInitInstanceFilePath + " does not exist")
 	} else {
-		slog.Errorf("Cannot read %s: %v", cloudInitInstanceFilePath, err)
+		logger.Error(err, "Cannot read file "+cloudInitInstanceFilePath)
 	}
 
-	slog.Debug("CloudStack VM ID not found in meta-data.")
+	logger.V(4).Info("CloudStack VM ID not found in meta-data")
 
 	return ""
 }
@@ -60,26 +62,27 @@ type cloudInitV1 struct {
 }
 
 func (c *client) readCloudInit(ctx context.Context, instanceFilePath string) (*cloudInitInstanceData, error) {
-	slog := ctxzap.Extract(ctx).Sugar()
+	logger := klog.FromContext(ctx)
 
 	b, err := os.ReadFile(instanceFilePath)
 	if err != nil {
-		slog.Errorf("Cannot read %s", instanceFilePath)
+		logger.Error(err, "Cannot read file "+instanceFilePath)
 
 		return nil, err
 	}
 
 	var data cloudInitInstanceData
 	if err := json.Unmarshal(b, &data); err != nil {
-		slog.Errorf("Cannot parse JSON file %s", instanceFilePath)
+		logger.Error(err, "Cannot parse JSON file "+instanceFilePath)
 
 		return nil, err
 	}
 
 	if strings.ToLower(data.V1.CloudName) != cloudStackCloudName {
-		slog.Errorf("Cloud-Init cloud name is %s, only %s is supported", data.V1.CloudName, cloudStackCloudName)
+		err := fmt.Errorf("cloud name from cloud-init is %s, only %s is supported", data.V1.CloudName, cloudStackCloudName)
+		logger.Error(err, "Unsupported cloud name detected")
 
-		return nil, fmt.Errorf("Cloud-Init cloud name is %s, only %s is supported", data.V1.CloudName, cloudStackCloudName)
+		return nil, err
 	}
 
 	return &data, nil

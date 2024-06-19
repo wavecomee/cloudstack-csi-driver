@@ -4,7 +4,7 @@
 package driver
 
 import (
-	"go.uber.org/zap"
+	"context"
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
@@ -13,7 +13,7 @@ import (
 // Interface is the CloudStack CSI driver interface.
 type Interface interface {
 	// Run the CSI driver gRPC server
-	Run() error
+	Run(ctx context.Context) error
 }
 
 type cloudstackDriver struct {
@@ -23,25 +23,23 @@ type cloudstackDriver struct {
 
 	connector cloud.Interface
 	mounter   mount.Interface
-	logger    *zap.Logger
 }
 
 // New instantiates a new CloudStack CSI driver.
-func New(endpoint string, csConnector cloud.Interface, mounter mount.Interface, nodeName string, version string, logger *zap.Logger) (Interface, error) {
+func New(endpoint string, csConnector cloud.Interface, mounter mount.Interface, nodeName string, version string) (Interface, error) {
 	return &cloudstackDriver{
 		endpoint:  endpoint,
 		nodeName:  nodeName,
 		version:   version,
 		connector: csConnector,
 		mounter:   mounter,
-		logger:    logger,
 	}, nil
 }
 
-func (cs *cloudstackDriver) Run() error {
+func (cs *cloudstackDriver) Run(ctx context.Context) error {
 	ids := NewIdentityServer(cs.version)
 	ctrls := NewControllerServer(cs.connector)
 	ns := NewNodeServer(cs.connector, cs.mounter, cs.nodeName)
 
-	return cs.serve(ids, ctrls, ns)
+	return cs.serve(ctx, ids, ctrls, ns)
 }

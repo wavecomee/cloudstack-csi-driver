@@ -8,11 +8,12 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	"google.golang.org/grpc"
+	"k8s.io/klog/v2"
 )
 
-func (cs *cloudstackDriver) serve(ids csi.IdentityServer, ctrls csi.ControllerServer, ns csi.NodeServer) error {
+func (cs *cloudstackDriver) serve(ctx context.Context, ids csi.IdentityServer, ctrls csi.ControllerServer, ns csi.NodeServer) error {
+	logger := klog.FromContext(ctx)
 	proto, addr, err := parseEndpoint(cs.endpoint)
 	if err != nil {
 		return err
@@ -34,29 +35,30 @@ func (cs *cloudstackDriver) serve(ids csi.IdentityServer, ctrls csi.ControllerSe
 
 	// Log every request and payloads (request + response)
 	opts := []grpc.ServerOption{
-		grpc.ChainUnaryInterceptor(
-			grpc_zap.UnaryServerInterceptor(cs.logger),
-			grpc_zap.PayloadUnaryServerInterceptor(cs.logger, func(context.Context, string, interface{}) bool { return true }),
-		),
-	}
-	// Make sure that log statements internal to gRPC library are logged using the zapLogger as well.
-	grpc_zap.ReplaceGrpcLoggerV2(cs.logger)
+		grpc.UnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+			resp, err := handler(klog.NewContext(ctx, logger), req)
+			if err != nil {
+				logger.Error(err, "GRPC method failed", "method", info.FullMethod)
+			}
 
-	server := grpc.NewServer(opts...)
+			return resp, err
+		}),
+	}
+	grpcServer := grpc.NewServer(opts...)
 
 	if ids != nil {
-		csi.RegisterIdentityServer(server, ids)
+		csi.RegisterIdentityServer(grpcServer, ids)
 	}
 	if ctrls != nil {
-		csi.RegisterControllerServer(server, ctrls)
+		csi.RegisterControllerServer(grpcServer, ctrls)
 	}
 	if ns != nil {
-		csi.RegisterNodeServer(server, ns)
+		csi.RegisterNodeServer(grpcServer, ns)
 	}
 
-	cs.logger.Sugar().Infow("Listening for connections", "address", listener.Addr())
+	logger.Info("Listening for connections", "address", listener.Addr())
 
-	return server.Serve(listener)
+	return grpcServer.Serve(listener)
 }
 
 func parseEndpoint(ep string) (string, string, error) {

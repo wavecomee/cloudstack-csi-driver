@@ -188,6 +188,9 @@ syncer:
 # for description of individual verbosity levels.
 logVerbosityLevel: 2
 
+# Log format. Available options are "text" and "json"
+logFormat: text
+
 # the secret should contain the cloudstack credentials
 # there are several options to inject the credentials:
 # 1) from kubernetes secret that doesn't exist: set "enabled" and "create" to true, this will create a secret from the values written to "data" down below
