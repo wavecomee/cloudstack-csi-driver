@@ -26,15 +26,23 @@ var onlyVolumeCapAccessMode = csi.VolumeCapability_AccessMode{
 
 type controllerServer struct {
 	csi.UnimplementedControllerServer
-	connector   cloud.Interface
+	// connector is the CloudStack client interface
+	connector cloud.Interface
+
+	// A map storing all volumes with ongoing operations so that additional operations
+	// for that same volume (as defined by VolumeID/volume name) return an Aborted error
 	volumeLocks *util.VolumeLocks
+
+	// A map storing all volumes/snapshots with ongoing operations.
+	operationLocks *util.OperationLock
 }
 
 // NewControllerServer creates a new Controller gRPC server.
 func NewControllerServer(connector cloud.Interface) csi.ControllerServer {
 	return &controllerServer{
-		connector:   connector,
-		volumeLocks: util.NewVolumeLocks(),
+		connector:      connector,
+		volumeLocks:    util.NewVolumeLocks(),
+		operationLocks: util.NewOperationLock(),
 	}
 }
 
@@ -236,6 +244,14 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
 	defer cs.volumeLocks.Release(volumeID)
+
+	// lock out volumeID for clone and expand operation
+	if err := cs.operationLocks.GetDeleteLock(volumeID); err != nil {
+		logger.Error(err, "Failed to acquire delete operation lock")
+
+		return nil, status.Error(codes.Aborted, err.Error())
+	}
+	defer cs.operationLocks.ReleaseDeleteLock(volumeID)
 
 	logger.Info("Deleting volume",
 		"volumeID", volumeID,
@@ -448,24 +464,23 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 	logger := klog.FromContext(ctx)
 	logger.V(6).Info("ControllerExpandVolume: called", "args", protosanitizer.StripSecrets(*req))
 
-	expandVolumeLock := util.NewOperationLock(ctx)
-
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
 	}
-	err := expandVolumeLock.GetExpandLock(volumeID)
-	if err != nil {
-		logger.Error(err, "failed acquiring expand lock", "volumeID", volumeID)
-
-		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
-	}
-	defer expandVolumeLock.ReleaseExpandLock(volumeID)
 
 	capRange := req.GetCapacityRange()
 	if capRange == nil {
 		return nil, status.Error(codes.InvalidArgument, "Capacity range not provided")
 	}
+
+	// lock out parallel requests against the same volume ID
+	if acquired := cs.volumeLocks.TryAcquire(volumeID); !acquired {
+		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsVolumeID), "failed to acquire volume lock", "volumeID", volumeID)
+
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+	}
+	defer cs.volumeLocks.Release(volumeID)
 
 	volSizeBytes := capRange.GetRequiredBytes()
 	volSizeGB := util.RoundUpBytesToGB(volSizeBytes)
@@ -496,6 +511,15 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 			NodeExpansionRequired: true,
 		}, nil
 	}
+
+	// lock out volumeID for clone and delete operation
+	if err := cs.operationLocks.GetExpandLock(volumeID); err != nil {
+		logger.Error(err, "failed acquiring expand lock", "volumeID", volumeID)
+
+		return nil, status.Error(codes.Aborted, err.Error())
+	}
+	defer cs.operationLocks.ReleaseExpandLock(volumeID)
+
 	err = cs.connector.ExpandVolume(ctx, volumeID, volSizeGB)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not resize volume %q to size %v: %v", volumeID, volSizeGB, err)

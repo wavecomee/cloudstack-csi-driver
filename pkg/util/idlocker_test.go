@@ -17,7 +17,6 @@ limitations under the License.
 package util
 
 import (
-	"context"
 	"testing"
 )
 
@@ -56,7 +55,7 @@ func TestIDLocker(t *testing.T) {
 func TestOperationLocks(t *testing.T) {
 	t.Parallel()
 	volumeID := "test-vol"
-	lock := NewOperationLock(context.Background())
+	lock := NewOperationLock()
 	err := lock.GetCloneLock(volumeID)
 	if err != nil {
 		t.Errorf("failed to acquire clone lock for %s %s", volumeID, err)

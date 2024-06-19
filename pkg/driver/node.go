@@ -403,7 +403,14 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
 	}
-	volumePath := req.GetVolumePath()
+
+	// Get volume path
+	// This should work for Kubernetes >= 1.26, see https://github.com/kubernetes/kubernetes/issues/115343
+	volumePath := req.GetStagingTargetPath()
+	if volumePath == "" {
+		// Except that it doesn't work in the sanity test, so we need a fallback to volumePath.
+		volumePath = req.GetVolumePath()
+	}
 	if len(volumePath) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume path not provided")
 	}
@@ -418,6 +425,13 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 		}
 	}
 
+	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
+		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsVolumeID), "failed to acquire volume lock", "volumeID", volumeID)
+
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+	}
+	defer ns.volumeLocks.Release(volumeID)
+
 	_, err := ns.connector.GetVolumeByID(ctx, volumeID)
 	if err != nil {
 		if errors.Is(err, cloud.ErrNotFound) {
@@ -425,11 +439,6 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 		}
 
 		return nil, status.Error(codes.Internal, fmt.Sprintf("NodeExpandVolume failed with error %v", err))
-	}
-
-	_, err = ns.mounter.GetMountRefs(volumePath)
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("Failed to find mount file system %s: %v", volumePath, err))
 	}
 
 	devicePath, err := ns.mounter.GetDevicePath(ctx, volumeID)
