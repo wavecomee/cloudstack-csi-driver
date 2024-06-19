@@ -38,7 +38,8 @@ spec:
           args:
             - "-endpoint=$(CSI_ENDPOINT)"
             - "-cloudstackconfig=/etc/cloudstack-csi-driver/cloud-config"
-            - "-debug"
+            - "-logging-format=text"
+            - "-v=4"
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock

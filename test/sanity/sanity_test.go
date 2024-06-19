@@ -3,14 +3,14 @@
 package sanity
 
 import (
+	"context"
 	"io/ioutil"
+	"k8s.io/klog/v2"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/kubernetes-csi/csi-test/v5/pkg/sanity"
-	"go.uber.org/zap"
-
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud/fake"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/driver"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
@@ -36,12 +36,15 @@ func TestSanity(t *testing.T) {
 		driver.DiskOfferingKey: "9743fd77-0f5d-4ef9-b2f8-f194235c769c",
 	}
 
-	csiDriver, err := driver.New(endpoint, fake.New(), mount.NewFake(), "node", "v0", zap.NewNop())
+	logger := klog.Background()
+	ctx := klog.NewContext(context.Background(), logger)
+
+	csiDriver, err := driver.New(endpoint, fake.New(), mount.NewFake(), "node", "v0")
 	if err != nil {
 		t.Fatalf("error creating driver: %v", err)
 	}
 	go func() {
-		csiDriver.Run()
+		csiDriver.Run(ctx)
 	}()
 
 	sanity.Test(t, config)

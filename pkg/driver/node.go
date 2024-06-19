@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/klog/v2"
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
@@ -45,6 +45,9 @@ func NewNodeServer(connector cloud.Interface, mounter mount.Interface, nodeName 
 }
 
 func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+	logger := klog.FromContext(ctx)
+	logger.V(6).Info("NodeStageVolume: called", "args", *req)
+
 	// Check parameters
 
 	volumeID := req.GetVolumeId()
@@ -66,7 +69,7 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 
 	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
-		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsVolumeID), "failed to acquire volume lock", "volumeID", volumeID)
 
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
@@ -82,7 +85,7 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Errorf(codes.Internal, "Cannot find device path for volume %s: %s", volumeID, err.Error())
 	}
 
-	ctxzap.Extract(ctx).Sugar().Infow("Device found",
+	logger.Info("Device found",
 		"devicePath", devicePath,
 		"deviceID", deviceID,
 	)
@@ -120,7 +123,7 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 
 	// Volume Mount
 	if notMnt {
-		ctxzap.Extract(ctx).Sugar().Infow("NodeStageVolume: formatting and mounting",
+		logger.Info("NodeStageVolume: formatting and mounting",
 			"devicePath", devicePath,
 			"target", target,
 			"fsType", fsType,
@@ -149,6 +152,9 @@ func hasMountOption(options []string, opt string) bool {
 }
 
 func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+	logger := klog.FromContext(ctx)
+	logger.V(6).Info("NodeUnstageVolume: called", "args", *req)
+
 	// Check parameters
 
 	volumeID := req.GetVolumeId()
@@ -162,7 +168,7 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 	}
 
 	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
-		ctxzap.Extract(ctx).Sugar().Errorf(util.VolumeOperationAlreadyExistsFmt, volumeID)
+		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsVolumeID), "failed to acquire volume lock", "volumeID", volumeID)
 
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
@@ -180,7 +186,7 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		return &csi.NodeUnstageVolumeResponse{}, nil
 	}
 
-	ctxzap.Extract(ctx).Sugar().Infow("NodeUnstageVolume: unmounting",
+	logger.Info("NodeUnstageVolume: unmounting",
 		"target", target,
 	)
 
@@ -189,7 +195,7 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		return nil, status.Errorf(codes.Internal, "failed to unmount target %q: %v", target, err)
 	}
 
-	ctxzap.Extract(ctx).Sugar().Infow("NodeUnstageVolume: unmount successful",
+	logger.Info("NodeUnstageVolume: unmount successful",
 		"target", target,
 	)
 
@@ -197,6 +203,9 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 }
 
 func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) { //nolint:gocognit
+	logger := klog.FromContext(ctx)
+	logger.V(6).Info("NodePublishVolume: called", "args", *req)
+
 	// Check arguments
 	if req.GetVolumeCapability() == nil {
 		return nil, status.Error(codes.InvalidArgument, "Volume capability missing in request")
@@ -247,7 +256,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			}
 		}
 		if !notMnt {
-			ctxzap.Extract(ctx).Sugar().Infow("NodePublishVolume: volume is already mounted",
+			logger.Info("NodePublishVolume: volume is already mounted",
 				"source", source,
 				"targetPath", targetPath,
 			)
@@ -259,7 +268,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 
 		mountFlags := req.GetVolumeCapability().GetMount().GetMountFlags()
 
-		ctxzap.Extract(ctx).Sugar().Infow("NodePublishVolume: mounting source",
+		logger.Info("NodePublishVolume: mounting source",
 			"source", source,
 			"targetPath", targetPath,
 			"fsType", fsType,
@@ -302,7 +311,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			return nil, status.Errorf(codes.Internal, "Could not create file %q: %v", targetPath, err)
 		}
 
-		ctxzap.Extract(ctx).Sugar().Infow("NodePublishVolume: mounting device",
+		logger.Info("NodePublishVolume: mounting device",
 			"devicePath", devicePath,
 			"targetPath", targetPath,
 			"deviceID", deviceID,
@@ -319,6 +328,9 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 }
 
 func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+	logger := klog.FromContext(ctx)
+	logger.V(6).Info("NodeUnpublishVolume: called", "args", *req)
+
 	volumeID := req.GetVolumeId()
 	if volumeID == "" {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
@@ -338,7 +350,7 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 		return nil, status.Errorf(codes.Internal, "Error %v", err)
 	}
 
-	ctxzap.Extract(ctx).Sugar().Infow("NodeUnpublishVolume: unmounting volume",
+	logger.Info("NodeUnpublishVolume: unmounting volume",
 		"targetPath", targetPath,
 		"volumeID", volumeID,
 	)
@@ -348,7 +360,7 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 		return nil, status.Errorf(codes.Internal, "failed to unmount target %q: %v", targetPath, err)
 	}
 
-	ctxzap.Extract(ctx).Sugar().Infow("NodeUnpublishVolume: unmounting successful",
+	logger.Info("NodeUnpublishVolume: unmounting successful",
 		"targetPath", targetPath,
 		"volumeID", volumeID,
 	)
@@ -356,7 +368,10 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (ns *nodeServer) NodeGetInfo(ctx context.Context, _ *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+	logger := klog.FromContext(ctx)
+	logger.V(6).Info("NodeGetInfo: called", "args", *req)
+
 	if ns.nodeName == "" {
 		return nil, status.Error(codes.Internal, "Missing node name")
 	}
@@ -381,6 +396,9 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, _ *csi.NodeGetInfoRequest
 }
 
 func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	logger := klog.FromContext(ctx)
+	logger.V(6).Info("NodeExpandVolume: called", "args", *req)
+
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
@@ -390,16 +408,11 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 		return nil, status.Error(codes.InvalidArgument, "Volume path not provided")
 	}
 
-	ctxzap.Extract(ctx).Sugar().Infow("Node expand volume called",
-		"volume_id", volumeID,
-		"volume_path", volumePath,
-		"method", "node_expand_volume",
-	)
 	volCap := req.GetVolumeCapability()
 	if volCap != nil {
 		switch volCap.GetAccessType().(type) { //nolint:gocritic
 		case *csi.VolumeCapability_Block:
-			ctxzap.Extract(ctx).Sugar().Info("filesystem expansion is skipped for block volumes")
+			logger.Info("Filesystem expansion is skipped for block volumes")
 
 			return &csi.NodeExpandVolumeResponse{}, nil
 		}
@@ -424,8 +437,10 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 		return nil, status.Error(codes.Internal, fmt.Sprintf("Unable to find Device path for volume %s: %v", volumeID, err))
 	}
 
-	ctxzap.Extract(ctx).Sugar().Infow("Device found",
+	logger.Info("Expanding volume",
 		"devicePath", devicePath,
+		"volumeID", volumeID,
+		"volumePath", volumePath,
 	)
 
 	r := ns.mounter.NewResizeFs(mount.New())
@@ -437,7 +452,7 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 }
 
 func (ns *nodeServer) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
-	return &csi.NodeGetCapabilitiesResponse{
+	resp := &csi.NodeGetCapabilitiesResponse{
 		Capabilities: []*csi.NodeServiceCapability{
 			{
 				Type: &csi.NodeServiceCapability_Rpc{
@@ -454,5 +469,7 @@ func (ns *nodeServer) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapab
 				},
 			},
 		},
-	}, nil
+	}
+
+	return resp, nil
 }

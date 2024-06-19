@@ -3,14 +3,15 @@ package cloud
 import (
 	"context"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"k8s.io/klog/v2"
 )
 
 func (c *client) ListZonesID(ctx context.Context) ([]string, error) {
+	logger := klog.FromContext(ctx)
 	result := make([]string, 0)
 	p := c.Zone.NewListZonesParams()
 	p.SetAvailable(true)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListZones", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "ListZones", "params", map[string]string{
 		"available": "true",
 	})
 	r, err := c.Zone.ListZones(p)

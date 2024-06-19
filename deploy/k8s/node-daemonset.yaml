@@ -30,8 +30,9 @@ spec:
           args:
             - "-endpoint=$(CSI_ENDPOINT)"
             - "-cloudstackconfig=/etc/cloudstack-csi-driver/cloud-config"
+            - "-logging-format=text"
             - "-nodeName=$(NODE_NAME)"
-            - "-debug"
+            - "-v=4"
           env:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock

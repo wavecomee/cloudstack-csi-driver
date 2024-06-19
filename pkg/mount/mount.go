@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 	"k8s.io/mount-utils"
 	"k8s.io/utils/exec"
 )
@@ -107,27 +107,28 @@ func (m *mounter) getDevicePathBySerialID(volumeID string) (string, error) {
 }
 
 func (m *mounter) probeVolume(ctx context.Context) {
-	log := ctxzap.Extract(ctx).Sugar()
-	log.Debug("Scanning SCSI host...")
+	logger := klog.FromContext(ctx)
+	logger.V(2).Info("Scanning SCSI host")
 
 	scsiPath := "/sys/class/scsi_host/"
 	if dirs, err := os.ReadDir(scsiPath); err == nil {
 		for _, f := range dirs {
 			name := scsiPath + f.Name() + "/scan"
 			data := []byte("- - -")
+			logger.V(2).Info("Triggering SCSI host rescan")
 			if err = os.WriteFile(name, data, 0o666); err != nil { //nolint:gosec
-				log.Warnf("Failed to rescan scsi host %s", name)
+				logger.Error(err, "Failed to rescan scsi host ", "dirName", name)
 			}
 		}
 	} else {
-		log.Warnf("Failed to read %s, err %v", scsiPath, err)
+		logger.Error(err, "Failed to read dir ", "dirName", scsiPath)
 	}
 
 	args := []string{"trigger"}
 	cmd := m.Exec.Command("udevadm", args...)
 	_, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Warnf("Error running udevadm trigger %v\n", err)
+		logger.Error(err, "Error running udevadm trigger")
 	}
 }
 

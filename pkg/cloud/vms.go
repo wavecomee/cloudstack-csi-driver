@@ -3,13 +3,14 @@ package cloud
 import (
 	"context"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"k8s.io/klog/v2"
 )
 
 func (c *client) GetVMByID(ctx context.Context, vmID string) (*VM, error) {
+	logger := klog.FromContext(ctx)
 	p := c.VirtualMachine.NewListVirtualMachinesParams()
 	p.SetId(vmID)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListVirtualMachines", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "ListVirtualMachines", "params", map[string]string{
 		"id": vmID,
 	})
 	l, err := c.VirtualMachine.ListVirtualMachines(p)
@@ -31,9 +32,10 @@ func (c *client) GetVMByID(ctx context.Context, vmID string) (*VM, error) {
 }
 
 func (c *client) getVMByName(ctx context.Context, name string) (*VM, error) {
+	logger := klog.FromContext(ctx)
 	p := c.VirtualMachine.NewListVirtualMachinesParams()
 	p.SetName(name)
-	ctxzap.Extract(ctx).Sugar().Infow("CloudStack API call", "command", "ListVirtualMachines", "params", map[string]string{
+	logger.V(2).Info("CloudStack API call", "command", "ListVirtualMachines", "params", map[string]string{
 		"name": name,
 	})
 	l, err := c.VirtualMachine.ListVirtualMachines(p)

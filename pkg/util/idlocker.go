@@ -18,11 +18,17 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 )
 
 const (
+	// ErrVolumeOperationAlreadyExistsVolumeID is the error msg logged for concurrent operation.
+	ErrVolumeOperationAlreadyExistsVolumeID = "an operation with the given Volume ID already exists"
+
+	// ErrVolumeOperationAlreadyExistsVolumeName is the error msg logged for concurrent operation.
+	ErrVolumeOperationAlreadyExistsVolumeName = "an operation with the given Volume name already exists"
+
 	// VolumeOperationAlreadyExistsFmt string format to return for concurrent operation.
 	VolumeOperationAlreadyExistsFmt = "an operation with the given Volume ID %s already exists"
 
@@ -245,6 +251,6 @@ func (ol *OperationLock) release(op operation, volumeID string) {
 			}
 		}
 	default:
-		ctxzap.Extract(ol.ctx).Sugar().Errorf("%v operation not supported", op)
+		klog.Errorf("Lock release failed, operation %v not supported", op)
 	}
 }
