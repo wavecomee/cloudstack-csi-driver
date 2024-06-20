@@ -1,10 +1,10 @@
 package cloud
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -13,9 +13,12 @@ import (
 
 const (
 	cloudInitInstanceFilePath = "/run/cloud-init/instance-data.json"
+	ignitionMetadataFilePath  = "/run/metadata/coreos"
 	cloudStackCloudName       = "cloudstack"
 )
 
+// metadataInstanceID tries to find the instance ID from either the environment variable NODE_ID,
+// or cloud-init or ignition metadata. Returns empty string if not found in any of these sources.
 func (c *client) metadataInstanceID(ctx context.Context) string {
 	logger := klog.FromContext(ctx)
 	logger.V(4).Info("Attempting to retrieve metadata from envvar NODE_ID")
@@ -39,11 +42,30 @@ func (c *client) metadataInstanceID(ctx context.Context) string {
 
 			return ciData.V1.InstanceID
 		}
-		slog.Error("cloud-init instance ID is not provided")
+		logger.Error(nil, "cloud-init instance ID is not provided")
 	} else if os.IsNotExist(err) {
 		logger.V(4).Info("File " + cloudInitInstanceFilePath + " does not exist")
 	} else {
 		logger.Error(err, "Cannot read file "+cloudInitInstanceFilePath)
+	}
+
+	// Try Ignition (CoreOS / Flatcar)
+	logger.V(4).Info("Trying with ignition")
+	if _, err := os.Stat(ignitionMetadataFilePath); err == nil {
+		logger.V(4).Info("File " + ignitionMetadataFilePath + " exists")
+		instanceID, err := c.readIgnition(ctx, ignitionMetadataFilePath)
+		if err != nil {
+			logger.Error(err, "Cannot read ignition metadata")
+		} else if instanceID != "" {
+			logger.V(4).Info("Found CloudStack VM ID from ignition", "nodeID", instanceID)
+
+			return instanceID
+		}
+		logger.Error(nil, "Failed to find instance ID in ignition metadata")
+	} else if os.IsNotExist(err) {
+		logger.V(4).Info("File " + ignitionMetadataFilePath + " does not exist")
+	} else {
+		logger.Error(err, "Cannot read file "+ignitionMetadataFilePath)
 	}
 
 	logger.V(4).Info("CloudStack VM ID not found in meta-data")
@@ -86,4 +108,35 @@ func (c *client) readCloudInit(ctx context.Context, instanceFilePath string) (*c
 	}
 
 	return &data, nil
+}
+
+// readIgnition reads the ignition metadata file and returns the instance ID, or empty string if not found.
+func (c *client) readIgnition(ctx context.Context, instanceFilePath string) (string, error) {
+	logger := klog.FromContext(ctx)
+
+	f, err := os.Open(instanceFilePath)
+	if err != nil {
+		logger.Error(err, "Cannot read file "+instanceFilePath)
+
+		return "", err
+	}
+	defer f.Close()
+
+	instanceID := ""
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "COREOS_CLOUDSTACK_INSTANCE_ID") {
+			lineSplit := strings.SplitAfter(line, "=")
+			if len(lineSplit) == 2 {
+				instanceID = strings.SplitAfter(line, "=")[1]
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		logger.Error(err, "Error scanning ignition metadata")
+	}
+
+	return instanceID, nil
 }
