@@ -14,7 +14,6 @@ limitations under the License.
 package util
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
@@ -95,12 +94,10 @@ type OperationLock struct {
 	locks map[operation]map[string]int
 	// lock to avoid concurrent operation on map
 	mux sync.Mutex
-	// context for logging
-	ctx context.Context //nolint:containedctx
 }
 
 // NewOperationLock returns new OperationLock.
-func NewOperationLock(ctx context.Context) *OperationLock {
+func NewOperationLock() *OperationLock {
 	lock := make(map[operation]map[string]int)
 	lock[createOp] = make(map[string]int)
 	lock[deleteOp] = make(map[string]int)
@@ -110,7 +107,6 @@ func NewOperationLock(ctx context.Context) *OperationLock {
 
 	return &OperationLock{
 		locks: lock,
-		ctx:   ctx,
 	}
 }
 
