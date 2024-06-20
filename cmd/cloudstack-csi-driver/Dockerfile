@@ -11,8 +11,10 @@ RUN apk add --no-cache \
     e2fsprogs-extra \
     # Provides mkfs.xfs
     xfsprogs \
-    # Provides blkid, also used by k8s.io/mount-utils
-    blkid
+    # blkid, mount and umount are required by k8s.io/mount-utils \
+    blkid \
+    mount \
+    umount
 
 COPY ./bin/cloudstack-csi-driver /cloudstack-csi-driver
 ENTRYPOINT ["/cloudstack-csi-driver"]
