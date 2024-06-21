@@ -66,6 +66,7 @@ controller:
       # maxSurge is the maximum number of pods that can be
       # created over the desired number of pods.
       maxSurge: 1
+  priorityClassName: ""
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 65532
@@ -118,7 +119,7 @@ node:
       hostPath:
         path: /etc/cacert
   dnsPolicy: ClusterFirstWithHostNet
-    
+  priorityClassName: ""
   podSecurityContext: {}
  
   securityContext: {}
@@ -207,8 +208,6 @@ secret:
       api-key: ""
       secret-key: ""
   hostMount: false
-
-priorityClassName: ""
 
 imagePullSecrets: []
 # - name: my-imagepull-secret

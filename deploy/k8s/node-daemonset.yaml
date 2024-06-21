@@ -26,7 +26,7 @@ spec:
 
       containers:
         - name: cloudstack-csi-node
-          image: ghcr.io/leaseweb/cloudstack-csi-driver:master
+          image: cloudstack-csi-driver
           imagePullPolicy: Always
           args:
             - "-endpoint=$(CSI_ENDPOINT)"
@@ -56,6 +56,8 @@ spec:
               mountPropagation: Bidirectional
             - name: device-dir
               mountPath: /dev
+            - name: cloud-init-dir
+              mountPath: /run/cloud-init/
             - name: cloudstack-conf
               mountPath: /etc/cloudstack-csi-driver
           ports:
@@ -130,6 +132,10 @@ spec:
         - name: registration-dir
           hostPath:
             path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: cloud-init-dir
+          hostPath:
+            path: /run/cloud-init/
             type: Directory
         - name: cloudstack-conf
           secret:
