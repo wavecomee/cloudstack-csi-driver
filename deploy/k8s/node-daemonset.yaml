@@ -15,6 +15,7 @@ spec:
         app.kubernetes.io/name: cloudstack-csi-node
         app.kubernetes.io/part-of: cloudstack-csi-driver
     spec:
+      priorityClassName: system-node-critical
       nodeSelector:
         kubernetes.io/os: linux
       tolerations:

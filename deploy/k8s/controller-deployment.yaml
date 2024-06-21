@@ -6,7 +6,7 @@ metadata:
   name: cloudstack-csi-controller
   namespace: kube-system
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -21,6 +21,7 @@ spec:
         app.kubernetes.io/name: cloudstack-csi-controller
         app.kubernetes.io/part-of: cloudstack-csi-driver
     spec:
+      priorityClassName: system-cluster-critical
       serviceAccountName: cloudstack-csi-controller
       nodeSelector:
         kubernetes.io/os: linux
