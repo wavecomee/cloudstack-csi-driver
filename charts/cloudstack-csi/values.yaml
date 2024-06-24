@@ -46,10 +46,7 @@ controller:
       repository: ghcr.io/leaseweb/cloudstack-csi-driver
       pullPolicy: IfNotPresent
       # tag: 0.4.1  # defaults to .Chart.AppVersion
-    volumeMounts:
-      - name: cacert
-        mountPath: /etc/cacert
-        readOnly: true
+    volumeMounts: {}
     resources: {}
     extraArgs: {}
     
@@ -80,10 +77,7 @@ controller:
     # seccompProfile:
     #   type: RuntimeDefault
     # readOnlyRootFilesystem: true
-  volumes:
-    - name: cacert
-      hostPath:
-        path: /etc/cacert
+  volumes: {}
   affinity: {}
   nodeSelector: {}
   tolerations: []
@@ -110,15 +104,8 @@ node:
       # tag: 0.4.1  # defaults to .Chart.AppVersion
     resources: {}
     extraArgs: {}
-    volumeMounts:
-      - name: cacert
-        mountPath: /etc/cacert
-        readOnly: true
-  volumes:
-    - name: cacert
-      hostPath:
-        path: /etc/cacert
-  dnsPolicy: ClusterFirstWithHostNet
+    volumeMounts: {}
+  volumes: {}
   priorityClassName: ""
   podSecurityContext: {}
  
