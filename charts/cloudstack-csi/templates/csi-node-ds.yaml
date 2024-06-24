@@ -169,7 +169,6 @@ spec:
       affinity: {{ toYaml .Values.node.affinity | nindent 8 }}
       nodeSelector: {{ toYaml .Values.node.nodeSelector | nindent 8 }}
       tolerations: {{ toYaml .Values.node.tolerations | nindent 8 }}
-      dnsPolicy: {{ .Values.node.dnsPolicy }}
       {{- with .Values.node.hostAliases }}
       hostAliases:
         {{- toYaml . | nindent 8 }}
