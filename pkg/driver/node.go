@@ -19,28 +19,30 @@ import (
 
 const (
 	// default file system type to be used when it is not provided.
-	defaultFsType = "ext4"
+	defaultFsType = FSTypeExt4
 )
 
 type nodeServer struct {
 	csi.UnimplementedNodeServer
-	connector   cloud.Interface
-	mounter     mount.Interface
-	nodeName    string
-	volumeLocks *util.VolumeLocks
+	connector         cloud.Interface
+	mounter           mount.Interface
+	maxVolumesPerNode int64
+	nodeName          string
+	volumeLocks       *util.VolumeLocks
 }
 
 // NewNodeServer creates a new Node gRPC server.
-func NewNodeServer(connector cloud.Interface, mounter mount.Interface, nodeName string) csi.NodeServer {
+func NewNodeServer(connector cloud.Interface, mounter mount.Interface, options *Options) csi.NodeServer {
 	if mounter == nil {
 		mounter = mount.New()
 	}
 
 	return &nodeServer{
-		connector:   connector,
-		mounter:     mounter,
-		nodeName:    nodeName,
-		volumeLocks: util.NewVolumeLocks(),
+		connector:         connector,
+		mounter:           mounter,
+		maxVolumesPerNode: options.VolumeAttachLimit,
+		nodeName:          options.NodeName,
+		volumeLocks:       util.NewVolumeLocks(),
 	}
 }
 
@@ -392,6 +394,7 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 	return &csi.NodeGetInfoResponse{
 		NodeId:             vm.ID,
 		AccessibleTopology: topology.ToCSI(),
+		MaxVolumesPerNode:  ns.maxVolumesPerNode,
 	}, nil
 }
 

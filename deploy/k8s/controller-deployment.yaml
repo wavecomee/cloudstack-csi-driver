@@ -37,10 +37,11 @@ spec:
           image: cloudstack-csi-driver
           imagePullPolicy: Always
           args:
-            - "-endpoint=$(CSI_ENDPOINT)"
-            - "-cloudstackconfig=/etc/cloudstack-csi-driver/cloud-config"
-            - "-logging-format=text"
-            - "-v=4"
+            - "controller"
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--cloudstack-config=/etc/cloudstack-csi-driver/cloud-config"
+            - "--logging-format=text"
+            - "--v=4"
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock

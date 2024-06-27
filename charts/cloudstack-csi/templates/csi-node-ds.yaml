@@ -31,10 +31,11 @@ spec:
           image: "{{ .Values.node.csiDriver.image.repository }}:{{ .Values.node.csiDriver.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.node.csiDriver.image.pullPolicy }}
           args:
+            - "node"
             - "--endpoint=$(CSI_ENDPOINT)"
-            - "--cloudstackconfig=$(CLOUD_CONFIG)"
+            - "--cloudstack-config=$(CLOUD_CONFIG)"
             - "--logging-format={{ .Values.logFormat }}"
-            - "--nodeName=$(NODE_NAME)"
+            - "--node-name=$(NODE_NAME)"
             - "--v={{ .Values.logVerbosityLevel }}"
             {{- if .Values.node.csiDriver.extraArgs }}
             {{- with .Values.node.csiDriver.extraArgs }}

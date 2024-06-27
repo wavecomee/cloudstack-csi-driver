@@ -5,6 +5,10 @@ package driver
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	"k8s.io/klog/v2"
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
@@ -17,29 +21,49 @@ type Interface interface {
 }
 
 type cloudstackDriver struct {
-	endpoint string
-	nodeName string
-	version  string
-
-	connector cloud.Interface
-	mounter   mount.Interface
+	controller csi.ControllerServer
+	identity   csi.IdentityServer
+	node       csi.NodeServer
+	options    *Options
 }
 
 // New instantiates a new CloudStack CSI driver.
-func New(endpoint string, csConnector cloud.Interface, mounter mount.Interface, nodeName string, version string) (Interface, error) {
-	return &cloudstackDriver{
-		endpoint:  endpoint,
-		nodeName:  nodeName,
-		version:   version,
-		connector: csConnector,
-		mounter:   mounter,
-	}, nil
+func New(ctx context.Context, csConnector cloud.Interface, options *Options, mounter mount.Interface) (Interface, error) {
+	logger := klog.FromContext(ctx)
+	logger.Info("Driver starting", "Driver", DriverName, "Version", driverVersion)
+
+	if err := validateMode(options.Mode); err != nil {
+		return nil, fmt.Errorf("invalid driver options: %w", err)
+	}
+
+	driver := &cloudstackDriver{
+		options: options,
+	}
+
+	driver.identity = NewIdentityServer(driverVersion)
+	switch options.Mode {
+	case ControllerMode:
+		driver.controller = NewControllerServer(csConnector)
+	case NodeMode:
+		driver.node = NewNodeServer(csConnector, mounter, options)
+	case AllMode:
+		driver.controller = NewControllerServer(csConnector)
+		driver.node = NewNodeServer(csConnector, mounter, options)
+	default:
+		return nil, fmt.Errorf("unknown mode: %s", options.Mode)
+	}
+
+	return driver, nil
 }
 
 func (cs *cloudstackDriver) Run(ctx context.Context) error {
-	ids := NewIdentityServer(cs.version)
-	ctrls := NewControllerServer(cs.connector)
-	ns := NewNodeServer(cs.connector, cs.mounter, cs.nodeName)
+	return cs.serve(ctx)
+}
 
-	return cs.serve(ctx, ids, ctrls, ns)
+func validateMode(mode Mode) error {
+	if mode != AllMode && mode != ControllerMode && mode != NodeMode {
+		return fmt.Errorf("mode is not supported (actual: %s, supported: %v)", mode, []Mode{AllMode, ControllerMode, NodeMode})
+	}
+
+	return nil
 }

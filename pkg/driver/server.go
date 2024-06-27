@@ -12,9 +12,9 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func (cs *cloudstackDriver) serve(ctx context.Context, ids csi.IdentityServer, ctrls csi.ControllerServer, ns csi.NodeServer) error {
+func (cs *cloudstackDriver) serve(ctx context.Context) error {
 	logger := klog.FromContext(ctx)
-	proto, addr, err := parseEndpoint(cs.endpoint)
+	proto, addr, err := parseEndpoint(cs.options.Endpoint)
 	if err != nil {
 		return err
 	}
@@ -46,14 +46,17 @@ func (cs *cloudstackDriver) serve(ctx context.Context, ids csi.IdentityServer, c
 	}
 	grpcServer := grpc.NewServer(opts...)
 
-	if ids != nil {
-		csi.RegisterIdentityServer(grpcServer, ids)
-	}
-	if ctrls != nil {
-		csi.RegisterControllerServer(grpcServer, ctrls)
-	}
-	if ns != nil {
-		csi.RegisterNodeServer(grpcServer, ns)
+	csi.RegisterIdentityServer(grpcServer, cs.identity)
+	switch cs.options.Mode {
+	case ControllerMode:
+		csi.RegisterControllerServer(grpcServer, cs.controller)
+	case NodeMode:
+		csi.RegisterNodeServer(grpcServer, cs.node)
+	case AllMode:
+		csi.RegisterControllerServer(grpcServer, cs.controller)
+		csi.RegisterNodeServer(grpcServer, cs.node)
+	default:
+		return fmt.Errorf("unknown mode: %s", cs.options.Mode)
 	}
 
 	logger.Info("Listening for connections", "address", listener.Addr())

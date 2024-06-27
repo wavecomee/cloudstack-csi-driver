@@ -29,11 +29,12 @@ spec:
           image: cloudstack-csi-driver
           imagePullPolicy: Always
           args:
-            - "-endpoint=$(CSI_ENDPOINT)"
-            - "-cloudstackconfig=/etc/cloudstack-csi-driver/cloud-config"
-            - "-logging-format=text"
-            - "-nodeName=$(NODE_NAME)"
-            - "-v=4"
+            - "node"
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--cloudstack-config=/etc/cloudstack-csi-driver/cloud-config"
+            - "--logging-format=text"
+            - "--node-name=$(NODE_NAME)"
+            - "--v=4"
           env:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock
