@@ -6,12 +6,15 @@ package driver
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
+	"github.com/leaseweb/cloudstack-csi-driver/pkg/util"
 )
 
 // Interface is the CloudStack CSI driver interface.
@@ -22,7 +25,6 @@ type Interface interface {
 
 type cloudstackDriver struct {
 	controller csi.ControllerServer
-	identity   csi.IdentityServer
 	node       csi.NodeServer
 	options    *Options
 }
@@ -40,7 +42,6 @@ func New(ctx context.Context, csConnector cloud.Interface, options *Options, mou
 		options: options,
 	}
 
-	driver.identity = NewIdentityServer(driverVersion)
 	switch options.Mode {
 	case ControllerMode:
 		driver.controller = NewControllerServer(csConnector)
@@ -57,7 +58,46 @@ func New(ctx context.Context, csConnector cloud.Interface, options *Options, mou
 }
 
 func (cs *cloudstackDriver) Run(ctx context.Context) error {
-	return cs.serve(ctx)
+	logger := klog.FromContext(ctx)
+	scheme, addr, err := util.ParseEndpoint(cs.options.Endpoint)
+	if err != nil {
+		return err
+	}
+
+	listener, err := net.Listen(scheme, addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen: %w", err)
+	}
+
+	// Log every request and payloads (request + response)
+	opts := []grpc.ServerOption{
+		grpc.UnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+			resp, err := handler(klog.NewContext(ctx, logger), req)
+			if err != nil {
+				logger.Error(err, "GRPC method failed", "method", info.FullMethod)
+			}
+
+			return resp, err
+		}),
+	}
+	grpcServer := grpc.NewServer(opts...)
+
+	csi.RegisterIdentityServer(grpcServer, cs)
+	switch cs.options.Mode {
+	case ControllerMode:
+		csi.RegisterControllerServer(grpcServer, cs.controller)
+	case NodeMode:
+		csi.RegisterNodeServer(grpcServer, cs.node)
+	case AllMode:
+		csi.RegisterControllerServer(grpcServer, cs.controller)
+		csi.RegisterNodeServer(grpcServer, cs.node)
+	default:
+		return fmt.Errorf("unknown mode: %s", cs.options.Mode)
+	}
+
+	logger.Info("Listening for connections", "address", listener.Addr())
+
+	return grpcServer.Serve(listener)
 }
 
 func validateMode(mode Mode) error {
