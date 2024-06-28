@@ -40,6 +40,8 @@ updates:
         update-types: ["version-update:semver-minor"]
       - dependency-name: "k8s.io/apimachinery"
         update-types: ["version-update:semver-minor"]
+      - dependency-name: "k8s.io/component-base"
+        update-types: ["version-update:semver-minor"]
       - dependency-name: "k8s.io/client-go"
         update-types: ["version-update:semver-minor"]
       - dependency-name: "k8s.io/mount-utils"

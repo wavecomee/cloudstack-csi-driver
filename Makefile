@@ -1,5 +1,6 @@
 CMDS=cloudstack-csi-driver cloudstack-csi-sc-syncer
 
+PKG=github.com/leaseweb/cloudstack-csi-driver
 # Revision that gets built into each binary via the main.version
 # string. Uses the `git describe` output based on the most recent
 # version tag with a short revision suffix or, if nothing has been
@@ -8,10 +9,12 @@ CMDS=cloudstack-csi-driver cloudstack-csi-sc-syncer
 # Beware that tags may also be missing in shallow clones as done by
 # some CI systems (like TravisCI, which pulls only 50 commits).
 REV=$(shell git describe --long --tags --match='v*' --dirty 2>/dev/null || git rev-list -n1 HEAD)
+GIT_COMMIT?=$(shell git rev-parse HEAD)
+BUILD_DATE?=$(shell date -u -Iseconds)
 
 DOCKER?=docker
 
-IMPORTPATH_LDFLAGS = -X main.version=$(REV) 
+IMPORTPATH_LDFLAGS = -X ${PKG}/pkg/driver.driverVersion=$(REV) -X ${PKG}/pkg/driver.gitCommit=${GIT_COMMIT} -X ${PKG}/pkg/driver.buildDate=${BUILD_DATE}
 LDFLAGS = -s -w
 FULL_LDFLAGS = $(LDFLAGS) $(IMPORTPATH_LDFLAGS)
 

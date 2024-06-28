@@ -5,9 +5,16 @@ package driver
 
 import (
 	"context"
+	"fmt"
+	"net"
+
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	"google.golang.org/grpc"
+	"k8s.io/klog/v2"
 
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
+	"github.com/leaseweb/cloudstack-csi-driver/pkg/util"
 )
 
 // Interface is the CloudStack CSI driver interface.
@@ -17,29 +24,86 @@ type Interface interface {
 }
 
 type cloudstackDriver struct {
-	endpoint string
-	nodeName string
-	version  string
-
-	connector cloud.Interface
-	mounter   mount.Interface
+	controller csi.ControllerServer
+	node       csi.NodeServer
+	options    *Options
 }
 
 // New instantiates a new CloudStack CSI driver.
-func New(endpoint string, csConnector cloud.Interface, mounter mount.Interface, nodeName string, version string) (Interface, error) {
-	return &cloudstackDriver{
-		endpoint:  endpoint,
-		nodeName:  nodeName,
-		version:   version,
-		connector: csConnector,
-		mounter:   mounter,
-	}, nil
+func New(ctx context.Context, csConnector cloud.Interface, options *Options, mounter mount.Interface) (Interface, error) {
+	logger := klog.FromContext(ctx)
+	logger.Info("Driver starting", "Driver", DriverName, "Version", driverVersion)
+
+	if err := validateMode(options.Mode); err != nil {
+		return nil, fmt.Errorf("invalid driver options: %w", err)
+	}
+
+	driver := &cloudstackDriver{
+		options: options,
+	}
+
+	switch options.Mode {
+	case ControllerMode:
+		driver.controller = NewControllerServer(csConnector)
+	case NodeMode:
+		driver.node = NewNodeServer(csConnector, mounter, options)
+	case AllMode:
+		driver.controller = NewControllerServer(csConnector)
+		driver.node = NewNodeServer(csConnector, mounter, options)
+	default:
+		return nil, fmt.Errorf("unknown mode: %s", options.Mode)
+	}
+
+	return driver, nil
 }
 
 func (cs *cloudstackDriver) Run(ctx context.Context) error {
-	ids := NewIdentityServer(cs.version)
-	ctrls := NewControllerServer(cs.connector)
-	ns := NewNodeServer(cs.connector, cs.mounter, cs.nodeName)
+	logger := klog.FromContext(ctx)
+	scheme, addr, err := util.ParseEndpoint(cs.options.Endpoint)
+	if err != nil {
+		return err
+	}
 
-	return cs.serve(ctx, ids, ctrls, ns)
+	listener, err := net.Listen(scheme, addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen: %w", err)
+	}
+
+	// Log every request and payloads (request + response)
+	opts := []grpc.ServerOption{
+		grpc.UnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+			resp, err := handler(klog.NewContext(ctx, logger), req)
+			if err != nil {
+				logger.Error(err, "GRPC method failed", "method", info.FullMethod)
+			}
+
+			return resp, err
+		}),
+	}
+	grpcServer := grpc.NewServer(opts...)
+
+	csi.RegisterIdentityServer(grpcServer, cs)
+	switch cs.options.Mode {
+	case ControllerMode:
+		csi.RegisterControllerServer(grpcServer, cs.controller)
+	case NodeMode:
+		csi.RegisterNodeServer(grpcServer, cs.node)
+	case AllMode:
+		csi.RegisterControllerServer(grpcServer, cs.controller)
+		csi.RegisterNodeServer(grpcServer, cs.node)
+	default:
+		return fmt.Errorf("unknown mode: %s", cs.options.Mode)
+	}
+
+	logger.Info("Listening for connections", "address", listener.Addr())
+
+	return grpcServer.Serve(listener)
+}
+
+func validateMode(mode Mode) error {
+	if mode != AllMode && mode != ControllerMode && mode != NodeMode {
+		return fmt.Errorf("mode is not supported (actual: %s, supported: %v)", mode, []Mode{AllMode, ControllerMode, NodeMode})
+	}
+
+	return nil
 }
