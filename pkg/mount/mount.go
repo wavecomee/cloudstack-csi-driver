@@ -6,14 +6,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	"k8s.io/mount-utils"
-	"k8s.io/utils/exec"
+	kexec "k8s.io/utils/exec"
 )
 
 const (
@@ -22,39 +25,57 @@ const (
 
 // Interface defines the set of methods to allow for
 // mount operations on a system.
-type Interface interface {
+type Interface interface { //nolint:interfacebloat
 	mount.Interface
-	exec.Interface
 
 	FormatAndMount(source string, target string, fstype string, options []string) error
-
-	CleanupMountPoint(path string, extensiveCheck bool) error
+	GetBlockSizeBytes(devicePath string) (int64, error)
 	GetDevicePath(ctx context.Context, volumeID string) (string, error)
 	GetDeviceName(mountPath string) (string, int, error)
-	ExistsPath(filename string) (bool, error)
+	GetStatistics(volumePath string) (volumeStatistics, error)
+	IsBlockDevice(devicePath string) (bool, error)
+	IsCorruptedMnt(err error) bool
 	MakeDir(pathname string) error
 	MakeFile(pathname string) error
-	NewResizeFs(exec exec.Interface) *mount.ResizeFs
+	NeedResize(devicePath string, deviceMountPath string) (bool, error)
+	PathExists(path string) (bool, error)
+	Resize(devicePath, deviceMountPath string) (bool, error)
+	Unpublish(path string) error
+	Unstage(path string) error
 }
 
 type mounter struct {
-	mount.SafeFormatAndMount
-	exec.Interface
+	*mount.SafeFormatAndMount
+}
+
+type volumeStatistics struct {
+	AvailableBytes, TotalBytes, UsedBytes    int64
+	AvailableInodes, TotalInodes, UsedInodes int64
 }
 
 // New creates an implementation of the mount.Interface.
 func New() Interface {
 	return &mounter{
-		mount.SafeFormatAndMount{
+		&mount.SafeFormatAndMount{
 			Interface: mount.New(""),
-			Exec:      exec.New(),
+			Exec:      kexec.New(),
 		},
-		exec.New(),
 	}
 }
 
-func (m *mounter) CleanupMountPoint(path string, extensiveCheck bool) error {
-	return mount.CleanupMountPoint(path, m, extensiveCheck)
+// GetBlockSizeBytes gets the size of the disk in bytes.
+func (m *mounter) GetBlockSizeBytes(devicePath string) (int64, error) {
+	output, err := m.Exec.Command("blockdev", "--getsize64", devicePath).Output()
+	if err != nil {
+		return -1, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %w", devicePath, string(output), err)
+	}
+	strOut := strings.TrimSpace(string(output))
+	gotSizeBytes, err := strconv.ParseInt(strOut, 10, 64)
+	if err != nil {
+		return -1, fmt.Errorf("failed to parse size %s as int", strOut)
+	}
+
+	return gotSizeBytes, nil
 }
 
 func (m *mounter) GetDevicePath(ctx context.Context, volumeID string) (string, error) {
@@ -150,14 +171,8 @@ func diskUUIDToSerial(uuid string) string {
 	return uuidWithoutHyphen[:20]
 }
 
-func (*mounter) ExistsPath(filename string) (bool, error) {
-	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-
-	return true, nil
+func (*mounter) PathExists(path string) (bool, error) {
+	return mount.PathExists(path)
 }
 
 func (*mounter) MakeDir(pathname string) error {
@@ -185,6 +200,82 @@ func (*mounter) MakeFile(pathname string) error {
 	return nil
 }
 
-func (*mounter) NewResizeFs(_ exec.Interface) *mount.ResizeFs {
-	return mount.NewResizeFs(New())
+// Resize resizes the filesystem of the given devicePath.
+func (m *mounter) Resize(devicePath, deviceMountPath string) (bool, error) {
+	return mount.NewResizeFs(m.Exec).Resize(devicePath, deviceMountPath)
+}
+
+// NeedResize checks if the filesystem of the given devicePath needs to be resized.
+func (m *mounter) NeedResize(devicePath string, deviceMountPath string) (bool, error) {
+	return mount.NewResizeFs(m.Exec).NeedResize(devicePath, deviceMountPath)
+}
+
+// GetStatistics gathers statistics on the volume.
+func (m *mounter) GetStatistics(volumePath string) (volumeStatistics, error) {
+	isBlock, err := m.IsBlockDevice(volumePath)
+	if err != nil {
+		return volumeStatistics{}, fmt.Errorf("failed to determine if volume %s is block device: %w", volumePath, err)
+	}
+
+	if isBlock {
+		// See http://man7.org/linux/man-pages/man8/blockdev.8.html for details
+		output, err := exec.Command("blockdev", "getsize64", volumePath).CombinedOutput()
+		if err != nil {
+			return volumeStatistics{}, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %w", volumePath, string(output), err)
+		}
+		strOut := strings.TrimSpace(string(output))
+		gotSizeBytes, err := strconv.ParseInt(strOut, 10, 64)
+		if err != nil {
+			return volumeStatistics{}, fmt.Errorf("failed to parse size %s into int", strOut)
+		}
+
+		return volumeStatistics{
+			TotalBytes: gotSizeBytes,
+		}, nil
+	}
+
+	var statfs unix.Statfs_t
+	// See http://man7.org/linux/man-pages/man2/statfs.2.html for details.
+	err = unix.Statfs(volumePath, &statfs)
+	if err != nil {
+		return volumeStatistics{}, err
+	}
+
+	volStats := volumeStatistics{
+		AvailableBytes: int64(statfs.Bavail) * int64(statfs.Bsize),
+		TotalBytes:     int64(statfs.Blocks) * int64(statfs.Bsize),
+		UsedBytes:      (int64(statfs.Blocks) - int64(statfs.Bfree)) * int64(statfs.Bsize),
+
+		AvailableInodes: int64(statfs.Ffree),
+		TotalInodes:     int64(statfs.Files),
+		UsedInodes:      int64(statfs.Files) - int64(statfs.Ffree),
+	}
+
+	return volStats, nil
+}
+
+// IsBlockDevice checks if the given path is a block device.
+func (m *mounter) IsBlockDevice(devicePath string) (bool, error) {
+	var stat unix.Stat_t
+	err := unix.Stat(devicePath, &stat)
+	if err != nil {
+		return false, err
+	}
+
+	return (stat.Mode & unix.S_IFMT) == unix.S_IFBLK, nil
+}
+
+// IsCorruptedMnt return true if err is about corrupted mount point.
+func (m *mounter) IsCorruptedMnt(err error) bool {
+	return mount.IsCorruptedMnt(err)
+}
+
+// Unpublish unmounts the given path.
+func (m *mounter) Unpublish(path string) error {
+	return m.Unstage(path)
+}
+
+// Unstage unmounts the given path.
+func (m *mounter) Unstage(path string) error {
+	return mount.CleanupMountPoint(path, m, true)
 }
