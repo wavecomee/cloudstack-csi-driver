@@ -5,13 +5,15 @@ import (
 	"os"
 
 	"k8s.io/mount-utils"
-	utilsexec "k8s.io/utils/exec"
 	exec "k8s.io/utils/exec/testing"
+)
+
+const (
+	giB = 1 << 30
 )
 
 type fakeMounter struct {
 	mount.SafeFormatAndMount
-	utilsexec.Interface
 }
 
 // NewFake creates a fake implementation of the
@@ -22,12 +24,11 @@ func NewFake() Interface {
 			Interface: mount.NewFakeMounter([]mount.MountPoint{}),
 			Exec:      &exec.FakeExec{DisableScripts: true},
 		},
-		utilsexec.New(),
 	}
 }
 
-func (m *fakeMounter) CleanupMountPoint(path string, extensiveCheck bool) error {
-	return mount.CleanupMountPoint(path, m, extensiveCheck)
+func (m *fakeMounter) GetBlockSizeBytes(_ string) (int64, error) {
+	return 1073741824, nil
 }
 
 func (m *fakeMounter) GetDevicePath(_ context.Context, _ string) (string, error) {
@@ -38,7 +39,13 @@ func (m *fakeMounter) GetDeviceName(mountPath string) (string, int, error) {
 	return mount.GetDeviceNameFromMount(m, mountPath)
 }
 
-func (*fakeMounter) ExistsPath(_ string) (bool, error) {
+func (*fakeMounter) PathExists(path string) (bool, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
 	return true, nil
 }
 
@@ -53,10 +60,52 @@ func (*fakeMounter) MakeDir(pathname string) error {
 	return nil
 }
 
-func (*fakeMounter) MakeFile(_ string) error {
+func (*fakeMounter) MakeFile(pathname string) error {
+	file, err := os.OpenFile(pathname, os.O_CREATE, os.FileMode(0o644))
+	if err != nil {
+		if !os.IsExist(err) {
+			return err
+		}
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func (*fakeMounter) NewResizeFs(_ utilsexec.Interface) *mount.ResizeFs {
-	return mount.NewResizeFs(New())
+func (m *fakeMounter) GetStatistics(_ string) (volumeStatistics, error) {
+	return volumeStatistics{
+		AvailableBytes: 3 * giB,
+		TotalBytes:     10 * giB,
+		UsedBytes:      7 * giB,
+
+		AvailableInodes: 3000,
+		TotalInodes:     10000,
+		UsedInodes:      7000,
+	}, nil
+}
+
+func (m *fakeMounter) IsBlockDevice(_ string) (bool, error) {
+	return false, nil
+}
+
+func (m *fakeMounter) IsCorruptedMnt(_ error) bool {
+	return false
+}
+
+func (m *fakeMounter) NeedResize(_ string, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *fakeMounter) Resize(_ string, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *fakeMounter) Unpublish(path string) error {
+	return m.Unstage(path)
+}
+
+func (m *fakeMounter) Unstage(path string) error {
+	return mount.CleanupMountPoint(path, m, true)
 }

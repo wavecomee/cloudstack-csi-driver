@@ -490,26 +490,13 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 		return nil, status.Error(codes.OutOfRange, "Volume size exceeds the limit specified")
 	}
 
-	volume, err := cs.connector.GetVolumeByID(ctx, volumeID)
+	_, err := cs.connector.GetVolumeByID(ctx, volumeID)
 	if err != nil {
 		if errors.Is(err, cloud.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "Volume %v not found", volumeID)
 		}
 
 		return nil, status.Error(codes.Internal, fmt.Sprintf("GetVolume failed with error %v", err))
-	}
-
-	if volume.Size >= util.GigaBytesToBytes(volSizeGB) {
-		// A volume was already resized.
-		logger.Info("Volume has already been expanded",
-			"volumeID", volumeID,
-			"volumeSize", volume.Size,
-			"volumeSizeRequested", volSizeGB)
-
-		return &csi.ControllerExpandVolumeResponse{
-			CapacityBytes:         volume.Size,
-			NodeExpansionRequired: true,
-		}, nil
 	}
 
 	// lock out volumeID for clone and delete operation
@@ -530,15 +517,22 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 		"volumeSize", volSizeGB,
 	)
 
+	nodeExpansionRequired := true
+	// Node expansion is not required for raw block volumes.
+	volCap := req.GetVolumeCapability()
+	if volCap != nil && volCap.GetBlock() != nil {
+		nodeExpansionRequired = false
+	}
+
 	return &csi.ControllerExpandVolumeResponse{
 		CapacityBytes:         util.GigaBytesToBytes(volSizeGB),
-		NodeExpansionRequired: true,
+		NodeExpansionRequired: nodeExpansionRequired,
 	}, nil
 }
 
 func (cs *controllerServer) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(6).Info("ControllerExpandVolume: called", "args", protosanitizer.StripSecrets(*req))
+	logger.V(6).Info("ControllerGetCapabilities: called", "args", protosanitizer.StripSecrets(*req))
 
 	resp := &csi.ControllerGetCapabilitiesResponse{
 		Capabilities: []*csi.ControllerServiceCapability{
