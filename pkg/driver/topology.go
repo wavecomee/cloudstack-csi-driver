@@ -33,7 +33,7 @@ func (t Topology) ToCSI() *csi.Topology {
 	segments := make(map[string]string)
 	segments[ZoneKey] = t.ZoneID
 	if t.HostID != "" {
-		segments[ZoneKey] = t.ZoneID
+		segments[HostKey] = t.HostID
 	}
 
 	return &csi.Topology{
