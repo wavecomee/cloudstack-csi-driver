@@ -549,6 +549,15 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 	}
 	defer ns.volumeLocks.Release(volumeID)
 
+	_, err := ns.connector.GetVolumeByID(ctx, volumeID)
+	if err != nil {
+		if errors.Is(err, cloud.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, fmt.Sprintf("Volume with ID %s not found", volumeID))
+		}
+
+		return nil, status.Error(codes.Internal, fmt.Sprintf("NodeExpandVolume failed with error %v", err))
+	}
+
 	devicePath, err := ns.mounter.GetDevicePath(ctx, volumeID)
 	if devicePath == "" {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("Unable to find Device path for volume %s: %v", volumeID, err))

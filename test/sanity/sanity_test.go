@@ -35,6 +35,8 @@ func TestSanity(t *testing.T) {
 	config.TestVolumeParameters = map[string]string{
 		driver.DiskOfferingKey: "9743fd77-0f5d-4ef9-b2f8-f194235c769c",
 	}
+	config.IdempotentCount = 5
+	config.TestNodeVolumeAttachLimit = true
 
 	logger := klog.Background()
 	ctx := klog.NewContext(context.Background(), logger)
