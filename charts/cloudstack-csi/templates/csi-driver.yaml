@@ -1,16 +1,16 @@
-{{- if or (.Values.controller.enabled) (.Values.node.enabled) }}
 apiVersion: storage.k8s.io/v1
 kind: CSIDriver
 metadata:
   name: csi.cloudstack.apache.org
+  labels:
+    {{- include "cloudstack-csi-driver.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
   annotations:
-    {{- with .Values.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
-    {{- end }}
+  {{- end }}
 spec:
   attachRequired: true
-  podInfoOnMount: true
+  podInfoOnMount: false
   # Supports only persistent volumes.
   volumeLifecycleModes:
-  - Persistent
-{{- end }}
+    - Persistent

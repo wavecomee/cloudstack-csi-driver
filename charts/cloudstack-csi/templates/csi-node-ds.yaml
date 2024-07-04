@@ -3,158 +3,241 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "csi.name" . }}-node
+  name: {{ include "cloudstack-csi-driver.name" . }}-node
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "csi.node.labels" . | nindent 4 }}
+    {{- include "cloudstack-csi-driver.labels" . | nindent 4 }}
+  {{- with .Values.node.daemonSetAnnotations }}
   annotations:
-    {{- with .Values.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
-    {{- end }}
+  {{- end }}
 spec:
+  {{- if or (kindIs "float64" .Values.node.revisionHistoryLimit) (kindIs "int64" .Values.node.revisionHistoryLimit) }}
+  revisionHistoryLimit: {{ .Values.node.revisionHistoryLimit }}
+  {{- end }}
   selector:
     matchLabels:
-      {{- include "csi.node.matchLabels" . | nindent 6 }}
+      app: {{ include "cloudstack-csi-driver.name" . }}-node
+      {{- include "cloudstack-csi-driver.selectorLabels" . | nindent 6 }}
   updateStrategy:
-    type: RollingUpdate
+    {{- toYaml .Values.node.updateStrategy | nindent 4 }}
   template:
     metadata:
       labels:
-        {{- include "csi.node.labels" . | nindent 8 }}
+        app: {{ include "cloudstack-csi-driver.name" . }}-node
+        {{- include "cloudstack-csi-driver.selectorLabels" . | nindent 8 }}
+        {{- if .Values.node.podLabels }}
+        {{- toYaml .Values.node.podLabels | nindent 8 }}
+        {{- end }}
+      {{- with .Values.node.podAnnotations }}
       annotations:
-        {{- with .Values.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.node.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+        {{- with .Values.node.nodeSelector }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-    spec:
+      serviceAccountName: {{ .Values.node.serviceAccount.name }}
+      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriodSeconds }}
+      priorityClassName: {{ .Values.node.priorityClassName | default "system-node-critical" }}
+      tolerations:
+        {{- with .Values.node.tolerations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.node.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: cloudstack-csi-node
-          image: "{{ .Values.node.csiDriver.image.repository }}:{{ .Values.node.csiDriver.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.node.csiDriver.image.pullPolicy }}
+          image: "{{ .Values.node.image.repository }}:{{ .Values.node.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.node.image.pullPolicy }}
           args:
-            - "node"
-            - "--endpoint=$(CSI_ENDPOINT)"
-            - "--cloudstack-config=$(CLOUD_CONFIG)"
-            - "--logging-format={{ .Values.logFormat }}"
-            - "--node-name=$(NODE_NAME)"
-            - "--v={{ .Values.logVerbosityLevel }}"
-            {{- if .Values.node.csiDriver.extraArgs }}
-            {{- with .Values.node.csiDriver.extraArgs }}
-            {{- tpl . $ | trim | nindent 12 }}
+            - node
+            - --endpoint=$(CSI_ENDPOINT)
+            - --cloudstack-config=$(CLOUD_CONFIG)
+            {{- with .Values.node.volumeAttachLimit }}
+            - --volume-attach-limit={{ . }}
             {{- end }}
+            - --node-name=$(NODE_NAME)
+            {{- with .Values.node.loggingFormat }}
+            - --logging-format={{ . }}
+            {{- end }}
+            - --v={{ .Values.node.logLevel }}
+            {{- range .Values.node.extraArgs }}
+            - {{ . }}
             {{- end }}
           env:
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock
             - name: CLOUD_CONFIG
-              value: /etc/config/cloud.conf
+              value: /etc/config/cloud-config
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          {{ if .Values.livenessProbe.enable }}
-          livenessProbe: {{- toYaml .Values.livenessProbe.livenessProbeSpec | nindent 12 }}
-          {{ end }}
-          ports:
-            - containerPort: 9808
-              name: healthz
-              protocol: TCP
-          securityContext:
-            privileged: true
-            capabilities:
-              add: ["SYS_ADMIN"]
-            allowPrivilegeEscalation: true
+            {{- with .Values.node.env }}
+            {{- . | toYaml | nindent 12 }}
+            {{- end }}
+          {{- with .Values.controller.envFrom }}
+          envFrom:
+            {{- . | toYaml | nindent 12 }}
+          {{- end }}
           volumeMounts:
-            - name: socket-dir
-              mountPath: /csi
             - name: kubelet-dir
-              mountPath: {{ .Values.node.kubeletDir }}
-              # needed so that any mounts setup inside this container are
-              # propagated back to the host machine.
+              mountPath: {{ .Values.node.kubeletPath }}
               mountPropagation: "Bidirectional"
-            - name: pods-probe-dir
+            - name: plugin-dir
+              mountPath: /csi
+            - name: device-dir
               mountPath: /dev
-              mountPropagation: "HostToContainer"
             - name: cloud-config
               mountPath: /etc/config
-          {{- with .Values.node.csiDriver.volumeMounts }}
+            {{- if eq .Values.node.metadataSource "cloud-init" }}
+            - name: cloud-init-dir
+              mountPath: /run/cloud-init
+            {{- end }}
+            {{- if eq .Values.node.metadataSource "ignition" }}
+            - name: ignition-dir
+              mountPath: /run/metadata
+            {{- end }}
+          {{- with .Values.node.volumeMounts }}
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 5
+          {{- with .Values.node.resources }}
+          resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          resources: {{ toYaml .Values.node.csiDriver.resources | nindent 12 }}
-        - name: node-driver-registrar
+          {{- with .Values.node.securityContext }}
           securityContext:
-            {{- toYaml .Values.node.securityContext | nindent 12 }}
-          image: "{{ .Values.node.nodeDriverRegistrar.image.repository }}:{{ .Values.node.nodeDriverRegistrar.image.tag }}"
-          imagePullPolicy: {{ .Values.node.nodeDriverRegistrar.image.pullPolicy }}
-          args:
-            - "-v={{ .Values.logVerbosityLevel }}"
-            - "--csi-address=$(ADDRESS)"
-            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
-            - "--health-port=9809"
-            {{- if .Values.node.nodeDriverRegistrar.extraArgs }}
-            {{- with .Values.node.nodeDriverRegistrar.extraArgs }}
-            {{- tpl . $ | trim | nindent 12 }}
-            {{- end }}
-            {{- end }}
-          ports:
-              - containerPort: 9809
-                name: healthz
-          {{ if .Values.livenessProbe.enable }}
-          livenessProbe: {{- toYaml .Values.livenessProbe.livenessProbeSpec | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
           {{- end }}
+        - name: node-driver-registrar
+          image: "{{ .Values.sidecars.nodeDriverRegistrar.image.repository }}:{{ .Values.sidecars.nodeDriverRegistrar.image.tag }}"
+          imagePullPolicy: {{ .Values.sidecars.nodeDriverRegistrar.image.pullPolicy }}
+          args:
+            - --csi-address=$(ADDRESS)
+            - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+            - --health-port=9809
+            - --v={{ .Values.sidecars.nodeDriverRegistrar.logLevel }}
+            {{- range .Values.sidecars.nodeDriverRegistrar.extraArgs }}
+            - {{ . }}
+            {{- end }}
           env:
             - name: ADDRESS
               value: /csi/csi.sock
             - name: DRIVER_REG_SOCK_PATH
-              value: {{ .Values.node.kubeletDir }}/plugins/csi.cloudstack.apache.org/csi.sock
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
+              value: {{ printf "%s/plugins/csi.cloudstack.apache.org/csi.sock" (trimSuffix "/" .Values.node.kubeletPath) }}
+            {{- with .Values.sidecars.nodeDriverRegistrar.env }}
+            {{- . | toYaml | nindent 12 }}
+            {{- end }}
+          {{- with .Values.controller.envFrom }}
+          envFrom:
+            {{- . | toYaml | nindent 12 }}
+          {{- end }}
+          ports:
+            - containerPort: 9809
+              name: healthz
+          {{- with .Values.sidecars.nodeDriverRegistrar.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
-            - mountPath: /csi
-              name: socket-dir
+            - name: plugin-dir
+              mountPath: /csi
             - name: registration-dir
               mountPath: /registration
-          resources: {{ toYaml .Values.node.nodeDriverRegistrar.resources | nindent 12 }}
-        {{ if .Values.livenessProbe.enable }}
-        - name: liveness-probe
+            - name: probe-dir
+              mountPath: {{ printf "%s/plugins/csi.cloudstack.apache.org/" (trimSuffix "/" .Values.node.kubeletPath) }}
+          {{- with default .Values.node.resources .Values.sidecars.nodeDriverRegistrar.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.sidecars.nodeDriverRegistrar.securityContext }}
           securityContext:
-            {{- toYaml .Values.node.securityContext | nindent 12 }}
-          image: "{{ .Values.livenessProbe.image.repository }}:{{ .Values.livenessProbe.image.tag }}"
-          imagePullPolicy: {{ .Values.livenessProbe.image.pullPolicy }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        - name: liveness-probe
+          image: "{{ .Values.sidecars.livenessProbe.image.repository }}:{{ .Values.sidecars.livenessProbe.image.tag }}"
+          imagePullPolicy: {{ .Values.sidecars.livenessProbe.image.pullPolicy }}
           args:
-            - "-v={{ .Values.logVerbosityLevel }}"
-            - "--csi-address=$(ADDRESS)"
-            {{- if .Values.livenessProbe.extraArgs }}
-            {{- with .Values.livenessProbe.extraArgs }}
-            {{- tpl . $ | trim | nindent 12 }}
+            - --csi-address=/csi/csi.sock
+            {{- range .Values.sidecars.livenessProbe.extraArgs }}
+            - {{ . }}
             {{- end }}
-            {{- end }}
-          env:
-            - name: ADDRESS
-              value: /csi/csi.sock
+          {{- with .Values.controller.envFrom }}
+          envFrom:
+            {{- . | toYaml | nindent 12 }}
+          {{- end }}
           volumeMounts:
-            - mountPath: /csi/
-              name: socket-dir
-          resources: {{ toYaml .Values.livenessProbe.resources | nindent 12 }}
-        {{ end }}  
+            - name: plugin-dir
+              mountPath: /csi
+          {{- with default .Values.node.resources .Values.sidecars.livenessProbe.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.sidecars.livenessProbe.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+      {{- range .Values.imagePullSecrets }}
+      - name: {{ . }}
+      {{- end }}
+      {{- end }}
       volumes:
-        - name: socket-dir
+        - name: kubelet-dir
           hostPath:
-            path: {{ .Values.node.kubeletDir }}/plugins/csi.cloudstack.apache.org/
+            path: {{ .Values.node.kubeletPath }}
+            type: Directory
+        - name: plugin-dir
+          hostPath:
+            path: {{ printf "%s/plugins/csi.cloudstack.apache.org/" (trimSuffix "/" .Values.node.kubeletPath) }}
             type: DirectoryOrCreate
         - name: registration-dir
           hostPath:
-            path: {{ .Values.node.kubeletDir }}/plugins_registry/
+            path: {{ printf "%s/plugins_registry/" (trimSuffix "/" .Values.node.kubeletPath) }}
             type: Directory
-        - name: kubelet-dir
-          hostPath:
-            path: {{ .Values.node.kubeletDir }}
-            type: Directory
-        - name: pods-probe-dir
+        - name: device-dir
           hostPath:
             path: /dev
             type: Directory
+        - name: probe-dir
+          {{- if .Values.node.probeDirVolume }}
+          {{- toYaml .Values.node.probeDirVolume | nindent 10 }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if eq .Values.node.metadataSource "cloud-init" }}
+        - name: cloud-init-dir
+          hostPath:
+            path: /run/cloud-init
+            type: Directory
+        {{- end }}
+        {{- if eq .Values.node.metadataSource "ignition" }}
+        - name: ignition-dir
+          hostPath:
+            path: /run/metadata
+            type: Directory
+        {{- end }}
         {{- if .Values.secret.enabled }}
         - name: cloud-config
           secret:
@@ -165,20 +248,10 @@ spec:
             path: /etc/config
         {{- end }}
         {{- with .Values.node.volumes }}
-          {{- toYaml . | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
-      affinity: {{ toYaml .Values.node.affinity | nindent 8 }}
-      nodeSelector: {{ toYaml .Values.node.nodeSelector | nindent 8 }}
-      tolerations: {{ toYaml .Values.node.tolerations | nindent 8 }}
       {{- with .Values.node.hostAliases }}
       hostAliases:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-    {{- if .Values.node.priorityClassName }}
-      priorityClassName: {{ .Values.node.priorityClassName }}
-    {{- end }}
-    {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-    {{- end }}
 {{- end }}

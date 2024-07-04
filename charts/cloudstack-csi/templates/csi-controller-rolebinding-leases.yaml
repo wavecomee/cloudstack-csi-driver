@@ -1,0 +1,24 @@
+{{ if .Values.controller.enabled }}
+{{ if .Values.rbac.create }}
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-leases-rolebinding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloudstack-csi-driver.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.controller.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: csi-leases-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end}}
+{{- end}}
