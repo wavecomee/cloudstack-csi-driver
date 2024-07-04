@@ -23,14 +23,39 @@ spec:
     spec:
       priorityClassName: system-cluster-critical
       serviceAccountName: cloudstack-csi-controller
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: "app.kubernetes.io/name"
+                operator: In
+                values:
+                - cloudstack-csi-controller
+            topologyKey: "kubernetes.io/hostname"
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
       nodeSelector:
         kubernetes.io/os: linux
-        node-role.kubernetes.io/control-plane: ""
       tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: CriticalAddonsOnly
+          operator: Exists
         - effect: NoExecute
           operator: Exists
-        - effect: NoSchedule
-          operator: Exists
+          tolerationSeconds: 300
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
 
       containers:
         - name: cloudstack-csi-controller
@@ -45,10 +70,6 @@ spec:
           env:
             - name: CSI_ENDPOINT
               value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
@@ -62,10 +83,21 @@ spec:
             httpGet:
               path: /healthz
               port: healthz
-            initialDelaySeconds: 30
-            timeoutSeconds: 10
-            periodSeconds: 180
-            failureThreshold: 3
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 40Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
         - name: external-provisioner
           image: registry.k8s.io/sig-storage/csi-provisioner:v5.0.1
@@ -89,6 +121,11 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
         - name: external-attacher
           image: registry.k8s.io/sig-storage/csi-attacher:v4.6.1
@@ -109,6 +146,11 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
         - name: external-resizer
           image: registry.k8s.io/sig-storage/csi-resizer:v1.11.1
@@ -129,6 +171,11 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
         - name: liveness-probe
           image: registry.k8s.io/sig-storage/livenessprobe:v2.12.0
@@ -141,6 +188,9 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
 
       volumes:
         - name: socket-dir
