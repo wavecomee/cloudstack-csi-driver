@@ -25,7 +25,7 @@ func (c *client) metadataInstanceID(ctx context.Context) string {
 
 	// Try a NODE_ID environment variable
 	if envNodeID := os.Getenv("NODE_ID"); envNodeID != "" {
-		logger.V(4).Info("Found CloudStack VM ID from envvar NODE_ID", "nodeID", envNodeID)
+		logger.Info("Found CloudStack VM ID from envvar NODE_ID", "nodeID", envNodeID)
 
 		return envNodeID
 	}
@@ -38,7 +38,7 @@ func (c *client) metadataInstanceID(ctx context.Context) string {
 		if err != nil {
 			logger.Error(err, "Cannot read cloud-init instance data")
 		} else if ciData.V1.InstanceID != "" {
-			logger.V(4).Info("Found CloudStack VM ID from cloud-init", "nodeID", ciData.V1.InstanceID)
+			logger.Info("Found CloudStack VM ID from cloud-init", "nodeID", ciData.V1.InstanceID)
 
 			return ciData.V1.InstanceID
 		}
@@ -57,7 +57,7 @@ func (c *client) metadataInstanceID(ctx context.Context) string {
 		if err != nil {
 			logger.Error(err, "Cannot read ignition metadata")
 		} else if instanceID != "" {
-			logger.V(4).Info("Found CloudStack VM ID from ignition", "nodeID", instanceID)
+			logger.Info("Found CloudStack VM ID from ignition", "nodeID", instanceID)
 
 			return instanceID
 		}
@@ -68,7 +68,7 @@ func (c *client) metadataInstanceID(ctx context.Context) string {
 		logger.Error(err, "Cannot read file "+ignitionMetadataFilePath)
 	}
 
-	logger.V(4).Info("CloudStack VM ID not found in meta-data")
+	logger.Info("CloudStack VM ID not found in meta-data")
 
 	return ""
 }
