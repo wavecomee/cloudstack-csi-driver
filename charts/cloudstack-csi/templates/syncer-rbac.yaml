@@ -1,24 +1,31 @@
 {{ if .Values.syncer.enabled }}
-{{ if .Values.syncer.rbac.create }}
+{{ if .Values.syncer.serviceAccount.create }}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ .Values.syncer.rbac.serviceAccount.name }}
+  name: {{ .Values.syncer.serviceAccount.name }}
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloudstack-csi-driver.labels" . | nindent 4 }}
+  {{- with .Values.syncer.serviceAccount.annotations }}
   annotations:
-    {{- with .Values.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
-    {{- end }}
+  {{- end }}
+{{- if .Values.syncer.serviceAccount.automountServiceAccountToken }}
+automountServiceAccountToken: {{ .Values.syncer.serviceAccount.automountServiceAccountToken }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: csi-sc-syncer-role
+  labels:
+    {{- include "cloudstack-csi-driver.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
   annotations:
-    {{- with .Values.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
-    {{- end }}
+  {{- end }}
 rules:
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses"]
@@ -28,13 +35,15 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: csi-sc-syncer-binding
+  labels:
+    {{- include "cloudstack-csi-driver.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
   annotations:
-    {{- with .Values.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
-    {{- end }}
+  {{- end }}
 subjects:
   - kind: ServiceAccount
-    name: {{ .Values.syncer.rbac.serviceAccount.name }}
+    name: {{ .Values.syncer.serviceAccount.name }}
     namespace: {{ .Release.Namespace }}
 roleRef:
   kind: ClusterRole

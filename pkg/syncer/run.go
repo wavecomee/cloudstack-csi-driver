@@ -86,7 +86,7 @@ func (s syncer) Run(ctx context.Context) error {
 
 	if s.volumeExpansion {
 		allowVolumeExpansion := s.volumeExpansion
-		log.Printf("Setting allowVolumeExpasion to %t...", allowVolumeExpansion)
+		log.Printf("Setting allowVolumeExpansion to %t", allowVolumeExpansion)
 	}
 
 	if len(errs) == 0 {

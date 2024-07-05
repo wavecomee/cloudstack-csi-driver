@@ -2,14 +2,14 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  labels:
-    {{- include "csi.controller.labels" . | nindent 4 }}
-  name: {{ include "csi.name" . }}-controller
+  name: {{ include "cloudstack-csi-driver.name" . }}-controller
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloudstack-csi-driver.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
   annotations:
-    {{- with .Values.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
-    {{- end }}
+  {{- end }}
 spec:
   podMetricsEndpoints:
   - interval: 30s
@@ -18,5 +18,5 @@ spec:
   jobLabel: component
   selector:
     matchLabels:
-      {{- include "csi.controller.matchLabels" . | nindent 6 }}
+      {{- include "cloudstack-csi-driver.selectorLabels" . | nindent 6 }}
 {{- end }}
