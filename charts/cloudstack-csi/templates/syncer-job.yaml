@@ -18,6 +18,18 @@ spec:
     spec:
       securityContext: {{- toYaml .Values.syncer.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ .Values.syncer.serviceAccount.name }}
+      tolerations:
+        { { - with .Values.node.tolerations } }
+          { { - toYaml . | nindent 8 } }
+          { { - end } }
+      {{- with .Values.syncer.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+        {{- with .Values.syncer.nodeSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       containers:
         - image: "{{ .Values.syncer.image.repository }}:{{ .Values.syncer.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.syncer.image.imagePullPolicy }}
@@ -54,14 +66,6 @@ spec:
         - name: cloud-config
           hostPath:
             path: /etc/cloudstack-csi-driver
-        {{- end }}
-      {{- with .Values.syncer.affinity }}
-      affinity: {{- toYaml . | nindent 8 }}
-      {{- end }}
-      nodeSelector:
-        kubernetes.io/os: linux
-        {{- with .Values.syncer.nodeSelector }}
-        {{- toYaml . | nindent 8 }}
         {{- end }}
       restartPolicy: {{ .Values.syncer.restartPolicy }}
 {{- end }}

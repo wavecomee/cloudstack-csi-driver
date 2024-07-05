@@ -139,7 +139,6 @@ controller:
     # Overrides the image tag whose default is v{{ .Chart.AppVersion }}
     tag: ""
     pullPolicy: IfNotPresent
-  ## Set number of replicas (If replicaCount set to 1 by default leader-elect will be false)
   replicaCount: 2
   # Extra arguments passed to cloudstack-csi-driver controller.
   extraArgs: []
@@ -335,6 +334,13 @@ syncer:
   nodeSelector: {}
   podAnnotations: {}
   podLabels: {}
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node.kubernetes.io/not-ready
+      operator: Exists
+      effect: NoSchedule
   resources: {}
   serviceAccount:
     create: true
