@@ -19,7 +19,7 @@ spec:
       securityContext: {{- toYaml .Values.syncer.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ .Values.syncer.serviceAccount.name }}
       tolerations:
-        {{- with .Values.node.tolerations }}
+        {{- with .Values.syncer.tolerations }}
           {{- toYaml . | nindent 8 }}
           {{- end }}
       {{- with .Values.syncer.affinity }}
