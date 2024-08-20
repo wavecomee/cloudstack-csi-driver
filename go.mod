@@ -9,16 +9,16 @@ require (
 	github.com/kubernetes-csi/csi-lib-utils v0.17.0
 	github.com/kubernetes-csi/csi-test/v5 v5.2.0
 	github.com/spf13/pflag v1.0.5
-	golang.org/x/sys v0.20.0
-	golang.org/x/text v0.16.0
+	golang.org/x/sys v0.24.0
+	golang.org/x/text v0.17.0
 	google.golang.org/grpc v1.65.0
 	gopkg.in/gcfg.v1 v1.2.3
-	k8s.io/api v0.29.7
-	k8s.io/apimachinery v0.29.7
-	k8s.io/client-go v0.29.7
-	k8s.io/component-base v0.29.7
+	k8s.io/api v0.29.8
+	k8s.io/apimachinery v0.29.8
+	k8s.io/client-go v0.29.8
+	k8s.io/component-base v0.29.8
 	k8s.io/klog/v2 v2.110.1
-	k8s.io/mount-utils v0.29.7
+	k8s.io/mount-utils v0.29.8
 	k8s.io/utils v0.0.0-20240102154912-e7106e64919e
 )
 
