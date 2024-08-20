@@ -10,6 +10,7 @@ func (c *client) GetVMByID(ctx context.Context, vmID string) (*VM, error) {
 	logger := klog.FromContext(ctx)
 	p := c.VirtualMachine.NewListVirtualMachinesParams()
 	p.SetId(vmID)
+	p.SetListall(true)
 	if c.projectID != "" {
 		p.SetProjectid(c.projectID)
 	}
@@ -38,6 +39,7 @@ func (c *client) getVMByName(ctx context.Context, name string) (*VM, error) {
 	logger := klog.FromContext(ctx)
 	p := c.VirtualMachine.NewListVirtualMachinesParams()
 	p.SetName(name)
+	p.SetListall(true)
 	if c.projectID != "" {
 		p.SetProjectid(c.projectID)
 	}
