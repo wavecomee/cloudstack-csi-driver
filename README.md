@@ -39,6 +39,7 @@ api-url = <CloudStack API URL>
 api-key = <CloudStack API Key>
 secret-key = <CloudStack API Secret>
 ssl-no-verify = <Disable SSL certificate validation: true or false (optional)>
+project-id = <CloudStack project ID (optional)>
 ```
 
 Create a secret named `cloudstack-secret` in namespace `kube-system`:
