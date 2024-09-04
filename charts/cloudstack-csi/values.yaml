@@ -382,6 +382,7 @@ secret:
       api-url: ""
       api-key: ""
       secret-key: ""
+      project-id: ""
   hostMount: false
 
 imagePullSecrets: []
