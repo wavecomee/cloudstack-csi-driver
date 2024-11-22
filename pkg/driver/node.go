@@ -258,11 +258,7 @@ func (ns *NodeService) isMounted(ctx context.Context, target string) (bool, erro
 	logger := klog.FromContext(ctx)
 
 	notMnt, err := ns.mounter.IsLikelyNotMountPoint(target)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, err
-		}
-
+	if err != nil && !os.IsNotExist(err) {
 		// Checking if the path exists and error is related to Corrupted Mount, in that case, the system could unmount and mount.
 		_, pathErr := ns.mounter.PathExists(target)
 		if pathErr != nil && ns.mounter.IsCorruptedMnt(pathErr) {
@@ -276,6 +272,18 @@ func (ns *NodeService) isMounted(ctx context.Context, target string) (bool, erro
 		}
 
 		return false, fmt.Errorf("could not check if %q is a mount point: %w, %w", target, err, pathErr)
+	}
+
+	// Do not return os.IsNotExist error. Other errors were handled above. The
+	// existence of the target should be checked by the caller explicitly and
+	// independently because sometimes prior to mount it is expected not to exist.
+	if err != nil && os.IsNotExist(err) {
+		logger.V(5).Info("[Debug] NodePublishVolume: Target path does not exist", "target", target)
+		return false, nil
+	}
+
+	if !notMnt {
+		logger.V(4).Info("NodePublishVolume: Target path is already mounted", "target", target)
 	}
 
 	return !notMnt, nil
