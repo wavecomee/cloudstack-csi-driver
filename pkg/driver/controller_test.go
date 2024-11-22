@@ -2,25 +2,28 @@ package driver
 
 import (
 	"context"
-	"go.uber.org/mock/gomock"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
+
+	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
 )
 
-var FakeCapacityGiB = 1
-var FakeVolName = "CSIVolumeName"
-var FakeVolID = "CSIVolumeID"
-var FakeAvailability = "nova"
-var FakeDiskOfferingId = "9743fd77-0f5d-4ef9-b2f8-f194235c769c"
-var FakeVol = cloud.Volume{
-	ID:     FakeVolID,
-	Name:   FakeVolName,
-	Size:   int64(FakeCapacityGiB),
-	ZoneID: FakeAvailability,
-}
+var (
+	FakeCapacityGiB    = 1
+	FakeVolName        = "CSIVolumeName"
+	FakeVolID          = "CSIVolumeID"
+	FakeAvailability   = "nova"
+	FakeDiskOfferingID = "9743fd77-0f5d-4ef9-b2f8-f194235c769c"
+	FakeVol            = cloud.Volume{
+		ID:     FakeVolID,
+		Name:   FakeVolName,
+		Size:   int64(FakeCapacityGiB),
+		ZoneID: FakeAvailability,
+	}
+)
 
 func TestDetermineSize(t *testing.T) {
 	cases := []struct {
@@ -57,18 +60,17 @@ func TestDetermineSize(t *testing.T) {
 	}
 }
 
-// Test CreateVolume
 func TestCreateVolume(t *testing.T) {
 	ctx := context.Background()
 	mockCtl := gomock.NewController(t)
 	defer mockCtl.Finish()
 	mockCloud := cloud.NewMockCloud(mockCtl)
-	mockCloud.EXPECT().CreateVolume(gomock.Eq(ctx), FakeDiskOfferingId, FakeAvailability, FakeVolName, gomock.Any()).Return(FakeVolID, nil)
+	mockCloud.EXPECT().CreateVolume(gomock.Eq(ctx), FakeDiskOfferingID, FakeAvailability, FakeVolName, gomock.Any()).Return(FakeVolID, nil)
 	mockCloud.EXPECT().GetVolumeByName(gomock.Eq(ctx), FakeVolName).Return(nil, cloud.ErrNotFound)
 	fakeCs := NewControllerService(mockCloud)
 	// mock CloudStack
 	// CreateVolume(ctx context.Context, diskOfferingID, zoneID, name string, sizeInGB int64) (string, error)
-	// csmock.On("CreateVolume", FakeCtx, FakeDiskOfferingId, FakeAvailability, FakeVolName, mock.AnythingOfType("int64")).Return(FakeVolID, nil)
+	// csmock.On("CreateVolume", FakeCtx, FakeDiskOfferingID, FakeAvailability, FakeVolName, mock.AnythingOfType("int64")).Return(FakeVolID, nil)
 	// csmock.On("GetVolumeByName", FakeCtx, FakeVolName).Return(nil, cloud.ErrNotFound)
 	// Init assert
 	assert := assert.New(t)
@@ -83,7 +85,7 @@ func TestCreateVolume(t *testing.T) {
 			},
 		},
 		Parameters: map[string]string{
-			DiskOfferingKey: FakeDiskOfferingId,
+			DiskOfferingKey: FakeDiskOfferingID,
 		},
 		AccessibilityRequirements: &csi.TopologyRequirement{
 			Requisite: []*csi.Topology{
@@ -99,9 +101,9 @@ func TestCreateVolume(t *testing.T) {
 		t.Errorf("failed to CreateVolume: %v", err)
 	}
 	// Assert
-	assert.NotNil(actualRes.Volume)
-	assert.NotNil(actualRes.Volume.CapacityBytes)
-	assert.NotEqual(0, len(actualRes.Volume.VolumeId), "Volume Id is nil")
-	assert.NotNil(actualRes.Volume.AccessibleTopology)
-	assert.Equal(FakeAvailability, actualRes.Volume.AccessibleTopology[0].GetSegments()[ZoneKey])
+	assert.NotNil(actualRes.GetVolume())
+	assert.NotNil(actualRes.GetVolume().GetCapacityBytes())
+	assert.NotEmpty(actualRes.GetVolume().GetVolumeId(), "Volume Id is empty")
+	assert.NotNil(actualRes.GetVolume().GetAccessibleTopology())
+	assert.Equal(FakeAvailability, actualRes.GetVolume().GetAccessibleTopology()[0].GetSegments()[ZoneKey])
 }

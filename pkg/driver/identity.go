@@ -7,7 +7,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func (cs *Driver) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
+func (d *Driver) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
 	logger := klog.FromContext(ctx)
 	logger.V(6).Info("GetPluginInfo: called", "args", *req)
 	resp := &csi.GetPluginInfoResponse{
@@ -18,14 +18,14 @@ func (cs *Driver) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoReque
 	return resp, nil
 }
 
-func (cs *Driver) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
+func (d *Driver) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
 	logger := klog.FromContext(ctx)
 	logger.V(6).Info("Probe: called", "args", *req)
 
 	return &csi.ProbeResponse{}, nil
 }
 
-func (cs *Driver) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
+func (d *Driver) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
 	logger := klog.FromContext(ctx)
 	logger.V(6).Info("Probe: called", "args", *req)
 

@@ -74,8 +74,8 @@ func (*fakeMounter) MakeFile(path string) error {
 	return nil
 }
 
-func (m *fakeMounter) GetStatistics(_ string) (volumeStatistics, error) {
-	return volumeStatistics{
+func (m *fakeMounter) GetStatistics(_ string) (VolumeStatistics, error) {
+	return VolumeStatistics{
 		AvailableBytes: 3 * giB,
 		TotalBytes:     10 * giB,
 		UsedBytes:      7 * giB,

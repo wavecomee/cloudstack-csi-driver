@@ -32,7 +32,7 @@ type Mounter interface { //nolint:interfacebloat
 	GetBlockSizeBytes(devicePath string) (int64, error)
 	GetDevicePath(ctx context.Context, volumeID string) (string, error)
 	GetDeviceNameFromMount(mountPath string) (string, int, error)
-	GetStatistics(volumePath string) (volumeStatistics, error)
+	GetStatistics(volumePath string) (VolumeStatistics, error)
 	IsBlockDevice(devicePath string) (bool, error)
 	IsCorruptedMnt(err error) bool
 	MakeDir(path string) error
@@ -50,7 +50,7 @@ type NodeMounter struct {
 	*mount.SafeFormatAndMount
 }
 
-type volumeStatistics struct {
+type VolumeStatistics struct {
 	AvailableBytes, TotalBytes, UsedBytes    int64
 	AvailableInodes, TotalInodes, UsedInodes int64
 }
@@ -213,25 +213,25 @@ func (m *NodeMounter) NeedResize(devicePath string, deviceMountPath string) (boo
 }
 
 // GetStatistics gathers statistics on the volume.
-func (m *NodeMounter) GetStatistics(volumePath string) (volumeStatistics, error) {
+func (m *NodeMounter) GetStatistics(volumePath string) (VolumeStatistics, error) {
 	isBlock, err := m.IsBlockDevice(volumePath)
 	if err != nil {
-		return volumeStatistics{}, fmt.Errorf("failed to determine if volume %s is block device: %w", volumePath, err)
+		return VolumeStatistics{}, fmt.Errorf("failed to determine if volume %s is block device: %w", volumePath, err)
 	}
 
 	if isBlock {
 		// See http://man7.org/linux/man-pages/man8/blockdev.8.html for details
 		output, err := exec.Command("blockdev", "getsize64", volumePath).CombinedOutput()
 		if err != nil {
-			return volumeStatistics{}, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %w", volumePath, string(output), err)
+			return VolumeStatistics{}, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %w", volumePath, string(output), err)
 		}
 		strOut := strings.TrimSpace(string(output))
 		gotSizeBytes, err := strconv.ParseInt(strOut, 10, 64)
 		if err != nil {
-			return volumeStatistics{}, fmt.Errorf("failed to parse size %s into int", strOut)
+			return VolumeStatistics{}, fmt.Errorf("failed to parse size %s into int", strOut)
 		}
 
-		return volumeStatistics{
+		return VolumeStatistics{
 			TotalBytes: gotSizeBytes,
 		}, nil
 	}
@@ -240,10 +240,10 @@ func (m *NodeMounter) GetStatistics(volumePath string) (volumeStatistics, error)
 	// See http://man7.org/linux/man-pages/man2/statfs.2.html for details.
 	err = unix.Statfs(volumePath, &statfs)
 	if err != nil {
-		return volumeStatistics{}, err
+		return VolumeStatistics{}, err
 	}
 
-	volStats := volumeStatistics{
+	volStats := VolumeStatistics{
 		AvailableBytes: int64(statfs.Bavail) * int64(statfs.Bsize),                         //nolint:unconvert
 		TotalBytes:     int64(statfs.Blocks) * int64(statfs.Bsize),                         //nolint:unconvert
 		UsedBytes:      (int64(statfs.Blocks) - int64(statfs.Bfree)) * int64(statfs.Bsize), //nolint:unconvert
