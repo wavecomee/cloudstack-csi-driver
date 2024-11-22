@@ -21,7 +21,7 @@ type fakeConnector struct {
 
 // New returns a new fake implementation of the
 // CloudStack connector.
-func New() cloud.Interface {
+func New() cloud.Cloud {
 	volume := cloud.Volume{
 		ID:               "ace9f28b-3081-40c1-8353-4cc3e3014072",
 		Name:             "vol-1",

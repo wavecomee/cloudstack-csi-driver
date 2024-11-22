@@ -33,7 +33,7 @@ var ValidFSTypes = map[string]struct{}{
 // NodeService represents the node service of CSI driver.
 type NodeService struct {
 	csi.UnimplementedNodeServer
-	connector         cloud.Interface
+	connector         cloud.Cloud
 	mounter           mount.Mounter
 	maxVolumesPerNode int64
 	nodeName          string
@@ -41,7 +41,7 @@ type NodeService struct {
 }
 
 // NewNodeService creates a new node service.
-func NewNodeService(connector cloud.Interface, mounter mount.Mounter, options *Options) *NodeService {
+func NewNodeService(connector cloud.Cloud, mounter mount.Mounter, options *Options) *NodeService {
 	if mounter == nil {
 		mounter = mount.New()
 	}

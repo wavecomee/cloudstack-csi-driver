@@ -32,7 +32,7 @@ type Driver struct {
 }
 
 // NewDriver instantiates a new CloudStack CSI driver.
-func NewDriver(ctx context.Context, csConnector cloud.Interface, options *Options, mounter mount.Mounter) (*Driver, error) {
+func NewDriver(ctx context.Context, csConnector cloud.Cloud, options *Options, mounter mount.Mounter) (*Driver, error) {
 	logger := klog.FromContext(ctx)
 	logger.Info("Driver starting", "Driver", DriverName, "Version", driverVersion)
 

@@ -28,7 +28,7 @@ var onlyVolumeCapAccessMode = csi.VolumeCapability_AccessMode{
 type ControllerService struct {
 	csi.UnimplementedControllerServer
 	// connector is the CloudStack client interface
-	connector cloud.Interface
+	connector cloud.Cloud
 
 	// A map storing all volumes with ongoing operations so that additional operations
 	// for that same volume (as defined by VolumeID/volume name) return an Aborted error
@@ -39,7 +39,7 @@ type ControllerService struct {
 }
 
 // NewControllerService creates a new controller service.
-func NewControllerService(connector cloud.Interface) *ControllerService {
+func NewControllerService(connector cloud.Cloud) *ControllerService {
 	return &ControllerService{
 		connector:      connector,
 		volumeLocks:    util.NewVolumeLocks(),
