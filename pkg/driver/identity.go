@@ -7,7 +7,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-func (cs *cloudstackDriver) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
+func (cs *Driver) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
 	logger := klog.FromContext(ctx)
 	logger.V(6).Info("GetPluginInfo: called", "args", *req)
 	resp := &csi.GetPluginInfoResponse{
@@ -18,14 +18,14 @@ func (cs *cloudstackDriver) GetPluginInfo(ctx context.Context, req *csi.GetPlugi
 	return resp, nil
 }
 
-func (cs *cloudstackDriver) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
+func (cs *Driver) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
 	logger := klog.FromContext(ctx)
 	logger.V(6).Info("Probe: called", "args", *req)
 
 	return &csi.ProbeResponse{}, nil
 }
 
-func (cs *cloudstackDriver) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
+func (cs *Driver) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
 	logger := klog.FromContext(ctx)
 	logger.V(6).Info("Probe: called", "args", *req)
 

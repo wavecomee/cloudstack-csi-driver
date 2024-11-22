@@ -46,7 +46,7 @@ func TestSanity(t *testing.T) {
 		Endpoint: endpoint,
 		NodeName: "node",
 	}
-	csiDriver, err := driver.New(ctx, fake.New(), &options, mount.NewFake())
+	csiDriver, err := driver.NewDriver(ctx, fake.New(), &options, mount.NewFake())
 	if err != nil {
 		t.Fatalf("error creating driver: %v", err)
 	}
