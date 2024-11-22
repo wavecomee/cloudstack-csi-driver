@@ -279,6 +279,7 @@ func (ns *NodeService) isMounted(ctx context.Context, target string) (bool, erro
 	// independently because sometimes prior to mount it is expected not to exist.
 	if err != nil && os.IsNotExist(err) {
 		logger.V(5).Info("[Debug] NodePublishVolume: Target path does not exist", "target", target)
+
 		return false, nil
 	}
 
@@ -323,8 +324,12 @@ func (ns *NodeService) NodePublishVolume(ctx context.Context, req *csi.NodePubli
 		mountOptions = append(mountOptions, "ro")
 	}
 
-	// Considering kubelet ensures the stage and publish operations
-	// are serialized, we don't need any extra locking in NodePublishVolume.
+	if acquired := ns.volumeLocks.TryAcquire(target); !acquired {
+		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsTargetPath), "failed to acquire volume lock", "target", target)
+
+		return nil, status.Errorf(codes.Aborted, util.TargetPathOperationAlreadyExistsFmt, target)
+	}
+	defer ns.volumeLocks.Release(target)
 
 	switch req.GetVolumeCapability().GetAccessType().(type) {
 	case *csi.VolumeCapability_Mount:
@@ -456,8 +461,12 @@ func (ns *NodeService) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnp
 		return nil, status.Error(codes.InvalidArgument, "Target path missing in request")
 	}
 
-	// Considering that kubelet ensures the stage and publish operations
-	// are serialized, we don't need any extra locking in NodeUnpublishVolume.
+	if acquired := ns.volumeLocks.TryAcquire(target); !acquired {
+		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsTargetPath), "failed to acquire volume lock", "target", target)
+
+		return nil, status.Errorf(codes.Aborted, util.TargetPathOperationAlreadyExistsFmt, target)
+	}
+	defer ns.volumeLocks.Release(target)
 
 	logger.V(4).Info("NodeUnpublishVolume: unmounting volume",
 		"target", target,
