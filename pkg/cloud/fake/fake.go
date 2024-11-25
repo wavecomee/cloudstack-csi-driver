@@ -4,6 +4,7 @@ package fake
 
 import (
 	"context"
+	"errors"
 
 	"github.com/hashicorp/go-uuid"
 
@@ -102,12 +103,32 @@ func (f *fakeConnector) DeleteVolume(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeConnector) AttachVolume(_ context.Context, _, _ string) (string, error) {
-	return "1", nil
+func (f *fakeConnector) AttachVolume(_ context.Context, volumeID, nodeID string) (string, error) {
+	if f.getVolumesPerServer(nodeID) >= 16 {
+		return "", errors.New("The specified VM already has the maximum number of data disks (16) attached. Please specify another VM.") //nolint:revive,stylecheck
+	}
+
+	if vol, ok := f.volumesByID[volumeID]; ok {
+		vol.VirtualMachineID = nodeID
+		f.volumesByID[volumeID] = vol
+		f.volumesByName[vol.Name] = vol
+
+		return "1", nil
+	}
+
+	return "", cloud.ErrNotFound
 }
 
-func (f *fakeConnector) DetachVolume(_ context.Context, _ string) error {
-	return nil
+func (f *fakeConnector) DetachVolume(_ context.Context, volumeID string) error {
+	if vol, ok := f.volumesByID[volumeID]; ok {
+		vol.VirtualMachineID = ""
+		f.volumesByID[volumeID] = vol
+		f.volumesByName[vol.Name] = vol
+
+		return nil
+	}
+
+	return cloud.ErrNotFound
 }
 
 func (f *fakeConnector) ExpandVolume(_ context.Context, volumeID string, newSizeInGB int64) error {
@@ -123,4 +144,15 @@ func (f *fakeConnector) ExpandVolume(_ context.Context, volumeID string, newSize
 	}
 
 	return cloud.ErrNotFound
+}
+
+func (f *fakeConnector) getVolumesPerServer(nodeID string) int {
+	volumesCount := 0
+	for _, v := range f.volumesByID {
+		if v.VirtualMachineID == nodeID {
+			volumesCount++
+		}
+	}
+
+	return volumesCount
 }
