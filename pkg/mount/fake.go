@@ -17,8 +17,8 @@ type fakeMounter struct {
 }
 
 // NewFake creates a fake implementation of the
-// mount.Interface, to be used in tests.
-func NewFake() Interface {
+// mount.Mounter, to be used in tests.
+func NewFake() Mounter {
 	return &fakeMounter{
 		mount.SafeFormatAndMount{
 			Interface: mount.NewFakeMounter([]mount.MountPoint{}),
@@ -35,7 +35,7 @@ func (m *fakeMounter) GetDevicePath(_ context.Context, _ string) (string, error)
 	return "/dev/sdb", nil
 }
 
-func (m *fakeMounter) GetDeviceName(mountPath string) (string, int, error) {
+func (m *fakeMounter) GetDeviceNameFromMount(mountPath string) (string, int, error) {
 	return mount.GetDeviceNameFromMount(m, mountPath)
 }
 
@@ -49,8 +49,8 @@ func (*fakeMounter) PathExists(path string) (bool, error) {
 	return true, nil
 }
 
-func (*fakeMounter) MakeDir(pathname string) error {
-	err := os.MkdirAll(pathname, os.FileMode(0o755))
+func (*fakeMounter) MakeDir(path string) error {
+	err := os.MkdirAll(path, os.FileMode(0o755))
 	if err != nil {
 		if !os.IsExist(err) {
 			return err
@@ -60,8 +60,8 @@ func (*fakeMounter) MakeDir(pathname string) error {
 	return nil
 }
 
-func (*fakeMounter) MakeFile(pathname string) error {
-	file, err := os.OpenFile(pathname, os.O_CREATE, os.FileMode(0o644))
+func (*fakeMounter) MakeFile(path string) error {
+	file, err := os.OpenFile(path, os.O_CREATE, os.FileMode(0o644))
 	if err != nil {
 		if !os.IsExist(err) {
 			return err
@@ -74,8 +74,8 @@ func (*fakeMounter) MakeFile(pathname string) error {
 	return nil
 }
 
-func (m *fakeMounter) GetStatistics(_ string) (volumeStatistics, error) {
-	return volumeStatistics{
+func (m *fakeMounter) GetStatistics(_ string) (VolumeStatistics, error) {
+	return VolumeStatistics{
 		AvailableBytes: 3 * giB,
 		TotalBytes:     10 * giB,
 		UsedBytes:      7 * giB,

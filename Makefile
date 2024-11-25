@@ -18,6 +18,20 @@ IMPORTPATH_LDFLAGS = -X ${PKG}/pkg/driver.driverVersion=$(REV) -X ${PKG}/pkg/dri
 LDFLAGS = -s -w
 FULL_LDFLAGS = $(LDFLAGS) $(IMPORTPATH_LDFLAGS)
 
+export REPO_ROOT := $(shell git rev-parse --show-toplevel)
+
+# Directories
+TOOLS_DIR := $(REPO_ROOT)/hack/tools
+TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
+BIN_DIR ?= bin
+
+GO_INSTALL := ./hack/go_install.sh
+
+MOCKGEN_BIN := mockgen
+MOCKGEN_VER := v0.5.0
+MOCKGEN := $(abspath $(TOOLS_BIN_DIR)/$(MOCKGEN_BIN)-$(MOCKGEN_VER))
+MOCKGEN_PKG := go.uber.org/mock/mockgen
+
 .PHONY: all
 all: build
 
@@ -41,6 +55,11 @@ $(CMDS:%=container-%): container-%: build-%
 	$(DOCKER) build -f ./cmd/$*/Dockerfile -t $*:latest \
 		--label org.opencontainers.image.revision=$(REV) .
 
+.PHONY: generate-mocks
+generate-mocks: $(MOCKGEN) pkg/cloud/mock_cloud.go ## Generate mocks needed for testing. Primarily mocks of the cloud package.
+pkg/cloud/mock%.go: $(shell find ./pkg/cloud -type f -name "*test*" -prune -o -print)
+	go generate ./...
+
 .PHONY: test
 test:
 	go test ./...
@@ -59,3 +78,11 @@ test/e2e/e2e.test test/e2e/ginkgo:
 .PHONY: test-e2e
 test-e2e: setup-external-e2e
 	bash ./test/e2e/run.sh
+
+##@ hack/tools:
+
+.PHONY: $(MOCKGEN_BIN)
+$(MOCKGEN_BIN): $(MOCKGEN) ## Build a local copy of mockgen.
+
+$(MOCKGEN): # Build mockgen from tools folder.
+	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(MOCKGEN_PKG) $(MOCKGEN_BIN) $(MOCKGEN_VER)

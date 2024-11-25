@@ -23,14 +23,16 @@ type Interface interface {
 	Run(ctx context.Context) error
 }
 
-type cloudstackDriver struct {
-	controller csi.ControllerServer
-	node       csi.NodeServer
+type Driver struct {
+	controller *ControllerService
+	node       *NodeService
+	srv        *grpc.Server
 	options    *Options
+	csi.UnimplementedIdentityServer
 }
 
-// New instantiates a new CloudStack CSI driver.
-func New(ctx context.Context, csConnector cloud.Interface, options *Options, mounter mount.Interface) (Interface, error) {
+// NewDriver instantiates a new CloudStack CSI driver.
+func NewDriver(ctx context.Context, csConnector cloud.Cloud, options *Options, mounter mount.Mounter) (*Driver, error) {
 	logger := klog.FromContext(ctx)
 	logger.Info("Driver starting", "Driver", DriverName, "Version", driverVersion)
 
@@ -38,18 +40,18 @@ func New(ctx context.Context, csConnector cloud.Interface, options *Options, mou
 		return nil, fmt.Errorf("invalid driver options: %w", err)
 	}
 
-	driver := &cloudstackDriver{
+	driver := &Driver{
 		options: options,
 	}
 
 	switch options.Mode {
 	case ControllerMode:
-		driver.controller = NewControllerServer(csConnector)
+		driver.controller = NewControllerService(csConnector)
 	case NodeMode:
-		driver.node = NewNodeServer(csConnector, mounter, options)
+		driver.node = NewNodeService(csConnector, mounter, options)
 	case AllMode:
-		driver.controller = NewControllerServer(csConnector)
-		driver.node = NewNodeServer(csConnector, mounter, options)
+		driver.controller = NewControllerService(csConnector)
+		driver.node = NewNodeService(csConnector, mounter, options)
 	default:
 		return nil, fmt.Errorf("unknown mode: %s", options.Mode)
 	}
@@ -57,9 +59,9 @@ func New(ctx context.Context, csConnector cloud.Interface, options *Options, mou
 	return driver, nil
 }
 
-func (cs *cloudstackDriver) Run(ctx context.Context) error {
+func (d *Driver) Run(ctx context.Context) error {
 	logger := klog.FromContext(ctx)
-	scheme, addr, err := util.ParseEndpoint(cs.options.Endpoint)
+	scheme, addr, err := util.ParseEndpoint(d.options.Endpoint)
 	if err != nil {
 		return err
 	}
@@ -80,24 +82,24 @@ func (cs *cloudstackDriver) Run(ctx context.Context) error {
 			return resp, err
 		}),
 	}
-	grpcServer := grpc.NewServer(opts...)
+	d.srv = grpc.NewServer(opts...)
+	csi.RegisterIdentityServer(d.srv, d)
 
-	csi.RegisterIdentityServer(grpcServer, cs)
-	switch cs.options.Mode {
+	switch d.options.Mode {
 	case ControllerMode:
-		csi.RegisterControllerServer(grpcServer, cs.controller)
+		csi.RegisterControllerServer(d.srv, d.controller)
 	case NodeMode:
-		csi.RegisterNodeServer(grpcServer, cs.node)
+		csi.RegisterNodeServer(d.srv, d.node)
 	case AllMode:
-		csi.RegisterControllerServer(grpcServer, cs.controller)
-		csi.RegisterNodeServer(grpcServer, cs.node)
+		csi.RegisterControllerServer(d.srv, d.controller)
+		csi.RegisterNodeServer(d.srv, d.node)
 	default:
-		return fmt.Errorf("unknown mode: %s", cs.options.Mode)
+		return fmt.Errorf("unknown mode: %s", d.options.Mode)
 	}
 
 	logger.Info("Listening for connections", "address", listener.Addr())
 
-	return grpcServer.Serve(listener)
+	return d.srv.Serve(listener)
 }
 
 func validateMode(mode Mode) error {

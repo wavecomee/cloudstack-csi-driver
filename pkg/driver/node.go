@@ -30,22 +30,23 @@ var ValidFSTypes = map[string]struct{}{
 	FSTypeXfs:  {},
 }
 
-type nodeServer struct {
+// NodeService represents the node service of CSI driver.
+type NodeService struct {
 	csi.UnimplementedNodeServer
-	connector         cloud.Interface
-	mounter           mount.Interface
+	connector         cloud.Cloud
+	mounter           mount.Mounter
 	maxVolumesPerNode int64
 	nodeName          string
 	volumeLocks       *util.VolumeLocks
 }
 
-// NewNodeServer creates a new Node gRPC server.
-func NewNodeServer(connector cloud.Interface, mounter mount.Interface, options *Options) csi.NodeServer {
+// NewNodeService creates a new node service.
+func NewNodeService(connector cloud.Cloud, mounter mount.Mounter, options *Options) *NodeService {
 	if mounter == nil {
 		mounter = mount.New()
 	}
 
-	return &nodeServer{
+	return &NodeService{
 		connector:         connector,
 		mounter:           mounter,
 		maxVolumesPerNode: options.VolumeAttachLimit,
@@ -54,9 +55,9 @@ func NewNodeServer(connector cloud.Interface, mounter mount.Interface, options *
 	}
 }
 
-func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+func (ns *NodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(6).Info("NodeStageVolume: called", "args", *req)
+	logger.V(4).Info("NodeStageVolume: called", "args", *req)
 
 	// Check parameters
 
@@ -106,11 +107,12 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 
 	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
-		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsVolumeID), "failed to acquire volume lock", "volumeID", volumeID)
-
-		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsVolumeIDFmt, volumeID)
 	}
-	defer ns.volumeLocks.Release(volumeID)
+	defer func() {
+		logger.V(4).Info("NodeStageVolume: volume operation finished", "volumeId", volumeID)
+		ns.volumeLocks.Release(volumeID)
+	}()
 
 	// Now, find the device path
 	source, err := ns.mounter.GetDevicePath(ctx, volumeID)
@@ -139,7 +141,7 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	}
 
 	// Check if a device is mounted in target directory
-	device, _, err := ns.mounter.GetDeviceName(target)
+	device, _, err := ns.mounter.GetDeviceNameFromMount(target)
 	if err != nil {
 		msg := fmt.Sprintf("failed to check if volume is already mounted: %v", err)
 
@@ -180,22 +182,9 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	return &csi.NodeStageVolumeResponse{}, nil
 }
 
-// hasMountOption returns a boolean indicating whether the given
-// slice already contains a mount option. This is used to prevent
-// passing duplicate option to the mount command.
-func hasMountOption(options []string, opt string) bool {
-	for _, o := range options {
-		if o == opt {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+func (ns *NodeService) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(6).Info("NodeUnstageVolume: called", "args", *req)
+	logger.V(4).Info("NodeUnstageVolume: called", "args", *req)
 
 	// Check parameters
 	volumeID := req.GetVolumeId()
@@ -209,16 +198,17 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 	}
 
 	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
-		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsVolumeID), "failed to acquire volume lock", "volumeID", volumeID)
-
-		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsVolumeIDFmt, volumeID)
 	}
-	defer ns.volumeLocks.Release(volumeID)
+	defer func() {
+		logger.V(4).Info("NodeUnstageVolume: volume operation finished", "volumeId", volumeID)
+		ns.volumeLocks.Release(volumeID)
+	}()
 
 	// Check if target directory is a mount point. GetDeviceNameFromMount
 	// given a mnt point, finds the device from /proc/mounts
 	// returns the device name, reference count, and error code
-	dev, refCount, err := ns.mounter.GetDeviceName(target)
+	dev, refCount, err := ns.mounter.GetDeviceNameFromMount(target)
 	if err != nil {
 		msg := fmt.Sprintf("failed to check if target %q is a mount point: %v", target, err)
 
@@ -253,36 +243,9 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
-func (ns *nodeServer) isMounted(ctx context.Context, target string) (bool, error) {
+func (ns *NodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-
-	notMnt, err := ns.mounter.IsLikelyNotMountPoint(target)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, err
-		}
-
-		// Checking if the path exists and error is related to Corrupted Mount, in that case, the system could unmount and mount.
-		_, pathErr := ns.mounter.PathExists(target)
-		if pathErr != nil && ns.mounter.IsCorruptedMnt(pathErr) {
-			logger.V(4).Info("NodePublishVolume: Target path is a corrupted mount. Trying to unmount.", "target", target)
-			if mntErr := ns.mounter.Unpublish(target); mntErr != nil {
-				return false, fmt.Errorf("unable to unmount the target %q : %w", target, mntErr)
-			}
-
-			// After successful unmount, the device is ready to be mounted.
-			return false, nil
-		}
-
-		return false, fmt.Errorf("could not check if %q is a mount point: %w, %w", target, err, pathErr)
-	}
-
-	return !notMnt, nil
-}
-
-func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) { //nolint:gocyclo,gocognit
-	logger := klog.FromContext(ctx)
-	logger.V(6).Info("NodePublishVolume: called", "args", *req)
+	logger.V(4).Info("NodePublishVolume: called", "args", *req)
 
 	// Check arguments
 	volumeID := req.GetVolumeId()
@@ -309,134 +272,36 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		return nil, status.Error(codes.InvalidArgument, "Volume capability not supported")
 	}
 
+	if acquired := ns.volumeLocks.TryAcquire(target); !acquired {
+		return nil, status.Errorf(codes.Aborted, util.TargetPathOperationAlreadyExistsFmt, target)
+	}
+	defer func() {
+		logger.V(4).Info("NodePublishVolume: volume operation finished", "volumeId", volumeID)
+		ns.volumeLocks.Release(target)
+	}()
+
 	mountOptions := []string{"bind"}
 	if req.GetReadonly() {
 		mountOptions = append(mountOptions, "ro")
 	}
 
-	// Considering kubelet ensures the stage and publish operations
-	// are serialized, we don't need any extra locking in NodePublishVolume.
-
-	switch req.GetVolumeCapability().GetAccessType().(type) {
+	switch mode := req.GetVolumeCapability().GetAccessType().(type) {
 	case *csi.VolumeCapability_Mount:
-		mounted, err := ns.isMounted(ctx, target)
-		if err != nil {
-			if os.IsNotExist(err) {
-				if err := ns.mounter.MakeDir(target); err != nil {
-					return nil, status.Errorf(codes.Internal, "Could not create dir %q: %v", target, err)
-				}
-			} else {
-				return nil, status.Errorf(codes.Internal, "Could not check if %q is mounted: %v", target, err)
-			}
-		}
-
-		if mounted {
-			logger.Info("NodePublishVolume: volume is already mounted",
-				"source", source,
-				"target", target,
-			)
-
-			return &csi.NodePublishVolumeResponse{}, nil
-		}
-
-		mnt := volCap.GetMount()
-		if mnt == nil {
-			return nil, status.Error(codes.InvalidArgument, "NodePublishVolume: mount volume capability not found")
-		}
-		if mnt := volCap.GetMount(); mnt != nil {
-			for _, f := range mnt.GetMountFlags() {
-				if !hasMountOption(mountOptions, f) {
-					mountOptions = append(mountOptions, f)
-				}
-			}
-		}
-
-		fsType := mnt.GetFsType()
-		if fsType == "" {
-			fsType = defaultFsType
-		}
-
-		_, ok := ValidFSTypes[strings.ToLower(fsType)]
-		if !ok {
-			return nil, status.Errorf(codes.InvalidArgument, "NodePublishVolume: invalid fstype %s", fsType)
-		}
-
-		logger.V(4).Info("NodePublishVolume: mounting source",
-			"source", source,
-			"target", target,
-			"fsType", fsType,
-			"mountOptions", mountOptions,
-			"volumeID", volumeID,
-		)
-
-		if err := ns.mounter.Mount(source, target, fsType, mountOptions); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to mount %q at %q: %v", source, target, err)
+		if err := ns.nodePublishVolumeForMount(ctx, req, mountOptions, mode); err != nil {
+			return nil, err
 		}
 	case *csi.VolumeCapability_Block:
-		source, err := ns.mounter.GetDevicePath(ctx, volumeID)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "Cannot find device path for volume %s: %v", volumeID, err)
-		}
-
-		globalMountPath := filepath.Dir(target)
-		exists, err := ns.mounter.PathExists(globalMountPath)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "Could not check if path exists %q: %v", globalMountPath, err)
-		}
-		if !exists {
-			if err = ns.mounter.MakeDir(globalMountPath); err != nil {
-				return nil, status.Errorf(codes.Internal, "Could not create dir %q: %v", globalMountPath, err)
-			}
-		}
-
-		mounted, err := ns.isMounted(ctx, target)
-		if err != nil { //nolint:nestif
-			if os.IsNotExist(err) {
-				// Create the mount point as a file since bind mount device node requires it to be a file
-				logger.V(4).Info("NodePublishVolume: making target file", "target", target)
-				err = ns.mounter.MakeFile(target)
-				if err != nil {
-					if removeErr := os.Remove(target); removeErr != nil {
-						return nil, status.Errorf(codes.Internal, "Could not remove mount target %q: %v", target, removeErr)
-					}
-
-					return nil, status.Errorf(codes.Internal, "Could not create file %q: %v", target, err)
-				}
-			} else {
-				return nil, status.Errorf(codes.Internal, "Could not check if %q is mounted: %v", target, err)
-			}
-		}
-
-		if mounted {
-			logger.Info("NodePublishVolume: volume is already mounted",
-				"source", source,
-				"target", target,
-			)
-
-			return &csi.NodePublishVolumeResponse{}, nil
-		}
-
-		logger.Info("NodePublishVolume: mounting device",
-			"source", source,
-			"target", target,
-			"volumeID", volumeID,
-		)
-
-		if err := ns.mounter.Mount(source, target, "", mountOptions); err != nil {
-			if removeErr := os.Remove(target); removeErr != nil {
-				return nil, status.Errorf(codes.Internal, "Could not remove mount target %q: %v", target, removeErr)
-			}
-
-			return nil, status.Errorf(codes.Internal, "failed to mount %q at %q: %v", source, target, err)
+		if err := ns.nodePublishVolumeForBlock(ctx, req, mountOptions); err != nil {
+			return nil, err
 		}
 	}
 
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+func (ns *NodeService) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(6).Info("NodeUnpublishVolume: called", "args", *req)
+	logger.V(4).Info("NodeUnpublishVolume: called", "args", *req)
 
 	volumeID := req.GetVolumeId()
 	if volumeID == "" {
@@ -447,8 +312,13 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 		return nil, status.Error(codes.InvalidArgument, "Target path missing in request")
 	}
 
-	// Considering that kubelet ensures the stage and publish operations
-	// are serialized, we don't need any extra locking in NodeUnpublishVolume.
+	if acquired := ns.volumeLocks.TryAcquire(target); !acquired {
+		return nil, status.Errorf(codes.Aborted, util.TargetPathOperationAlreadyExistsFmt, target)
+	}
+	defer func() {
+		logger.V(4).Info("NodeUnpublishVolume: volume operation finished", "volumeId", volumeID)
+		ns.volumeLocks.Release(target)
+	}()
 
 	logger.V(4).Info("NodeUnpublishVolume: unmounting volume",
 		"target", target,
@@ -463,9 +333,9 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+func (ns *NodeService) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(6).Info("NodeGetInfo: called", "args", *req)
+	logger.V(4).Info("NodeGetInfo: called", "args", *req)
 
 	if ns.nodeName == "" {
 		return nil, status.Error(codes.Internal, "Missing node name")
@@ -491,9 +361,9 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 	}, nil
 }
 
-func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+func (ns *NodeService) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(6).Info("NodeExpandVolume: called", "args", *req)
+	logger.V(4).Info("NodeExpandVolume: called", "args", *req)
 
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -543,11 +413,12 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 	}
 
 	if acquired := ns.volumeLocks.TryAcquire(volumeID); !acquired {
-		logger.Error(errors.New(util.ErrVolumeOperationAlreadyExistsVolumeID), "failed to acquire volume lock", "volumeID", volumeID)
-
-		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsVolumeIDFmt, volumeID)
 	}
-	defer ns.volumeLocks.Release(volumeID)
+	defer func() {
+		logger.V(4).Info("NodeExpandVolume: volume operation finished", "volumeId", volumeID)
+		ns.volumeLocks.Release(volumeID)
+	}()
 
 	_, err := ns.connector.GetVolumeByID(ctx, volumeID)
 	if err != nil {
@@ -581,36 +452,29 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 	return &csi.NodeExpandVolumeResponse{CapacityBytes: bcap}, nil
 }
 
-func (ns *nodeServer) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+func (ns *NodeService) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(6).Info("NodeGetVolumeStats: called", "args", *req)
+	logger.V(4).Info("NodeGetVolumeStats: called", "args", *req)
 
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
 	}
 
-	// Get volume path
-	// This should work for Kubernetes >= 1.26, see https://github.com/kubernetes/kubernetes/issues/115343
-	volumePath := req.GetStagingTargetPath()
-	if volumePath == "" {
-		// Except that it doesn't work in the sanity test, so we need a fallback to volumePath.
-		volumePath = req.GetVolumePath()
-	}
-	if len(volumePath) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Volume path not provided")
+	if req.GetVolumePath() == "" {
+		return nil, status.Error(codes.InvalidArgument, "Volume Path missing in request")
 	}
 
-	exists, err := ns.mounter.PathExists(volumePath)
+	exists, err := ns.mounter.PathExists(req.GetVolumePath())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "unknown error when stat on %s: %v", volumePath, err)
+		return nil, status.Errorf(codes.Internal, "unknown error when stat on %s: %v", req.GetVolumePath(), err)
 	}
 	if !exists {
-		return nil, status.Errorf(codes.NotFound, "path %s does not exist", volumePath)
+		return nil, status.Errorf(codes.NotFound, "path %s does not exist", req.GetVolumePath())
 	}
 
-	isBlock, err := ns.mounter.IsBlockDevice(volumePath)
+	isBlock, err := ns.mounter.IsBlockDevice(req.GetVolumePath())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to determine if %q is block device: %s", volumePath, err)
+		return nil, status.Errorf(codes.Internal, "failed to determine if %q is block device: %s", req.GetVolumePath(), err)
 	}
 
 	if isBlock {
@@ -629,9 +493,9 @@ func (ns *nodeServer) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVo
 		}, nil
 	}
 
-	stats, err := ns.mounter.GetStatistics(volumePath)
+	stats, err := ns.mounter.GetStatistics(req.GetVolumePath())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to retrieve capacity statistics for volume path %q: %s", volumePath, err)
+		return nil, status.Errorf(codes.Internal, "failed to retrieve capacity statistics for volume path %q: %s", req.GetVolumePath(), err)
 	}
 
 	return &csi.NodeGetVolumeStatsResponse{
@@ -652,7 +516,7 @@ func (ns *nodeServer) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVo
 	}, nil
 }
 
-func (ns *nodeServer) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+func (ns *NodeService) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
 	resp := &csi.NodeGetCapabilitiesResponse{
 		Capabilities: []*csi.NodeServiceCapability{
 			{
@@ -680,4 +544,183 @@ func (ns *nodeServer) NodeGetCapabilities(_ context.Context, _ *csi.NodeGetCapab
 	}
 
 	return resp, nil
+}
+
+func (ns *NodeService) nodePublishVolumeForBlock(ctx context.Context, req *csi.NodePublishVolumeRequest, mountOptions []string) error {
+	logger := klog.FromContext(ctx)
+	target := req.GetTargetPath()
+	volumeID := req.GetVolumeId()
+	source, err := ns.mounter.GetDevicePath(ctx, volumeID)
+	if err != nil {
+		return status.Errorf(codes.Internal, "Cannot find device path for volume %s: %v", volumeID, err)
+	}
+
+	globalMountPath := filepath.Dir(target)
+	exists, err := ns.mounter.PathExists(globalMountPath)
+	if err != nil {
+		return status.Errorf(codes.Internal, "Could not check if path exists %q: %v", globalMountPath, err)
+	}
+	if !exists {
+		if err = ns.mounter.MakeDir(globalMountPath); err != nil {
+			return status.Errorf(codes.Internal, "Could not create dir %q: %v", globalMountPath, err)
+		}
+	}
+
+	// Create the mount point as a file since bind mount device node requires it to be a file
+	logger.V(4).Info("NodePublishVolume: making target file", "target", target)
+	err = ns.mounter.MakeFile(target)
+	if err != nil {
+		if removeErr := os.Remove(target); removeErr != nil {
+			return status.Errorf(codes.Internal, "Could not remove mount target %q: %v", target, removeErr)
+		}
+
+		return status.Errorf(codes.Internal, "Could not create file %q: %v", target, err)
+	}
+
+	mounted, err := ns.isMounted(ctx, target)
+	if err != nil {
+		return status.Errorf(codes.Internal, "Could not check if %q is mounted: %v", target, err)
+	}
+
+	if !mounted {
+		logger.V(4).Info("NodePublishVolume: mounting block device",
+			"source", source,
+			"target", target,
+		)
+
+		if err := ns.mounter.Mount(source, target, "", mountOptions); err != nil {
+			if removeErr := os.Remove(target); removeErr != nil {
+				return status.Errorf(codes.Internal, "Could not remove mount target %q: %v", target, removeErr)
+			}
+
+			return status.Errorf(codes.Internal, "failed to mount %q at %q: %v", source, target, err)
+		}
+	} else {
+		logger.V(4).Info("NodePublishVolume: target path already mounted", "target", target)
+	}
+
+	return nil
+}
+
+func (ns *NodeService) nodePublishVolumeForMount(ctx context.Context, req *csi.NodePublishVolumeRequest, mountOptions []string, mode *csi.VolumeCapability_Mount) error {
+	logger := klog.FromContext(ctx)
+	target := req.GetTargetPath()
+	source := req.GetStagingTargetPath()
+
+	if m := mode.Mount; m != nil {
+		for _, f := range m.GetMountFlags() {
+			if !hasMountOption(mountOptions, f) {
+				mountOptions = append(mountOptions, f)
+			}
+		}
+	}
+
+	// Prepare the publish target
+	logger.V(4).Info("NodePublishVolume: creating dir", "target", target)
+	if err := ns.mounter.MakeDir(target); err != nil {
+		return status.Errorf(codes.Internal, "Could not create dir %q: %v", target, err)
+	}
+
+	mounted, err := ns.isMounted(ctx, target)
+	if err != nil {
+		return status.Errorf(codes.Internal, "Could not check if %q is mounted: %v", target, err)
+	}
+
+	if !mounted {
+		fsType := mode.Mount.GetFsType()
+		if fsType == "" {
+			fsType = defaultFsType
+		}
+
+		_, ok := ValidFSTypes[strings.ToLower(fsType)]
+		if !ok {
+			return status.Errorf(codes.InvalidArgument, "NodePublishVolume: invalid fstype %s", fsType)
+		}
+
+		mountOptions = collectMountOptions(fsType, mountOptions)
+
+		logger.V(4).Info("NodePublishVolume: mounting source",
+			"source", source,
+			"target", target,
+			"fsType", fsType,
+			"mountOptions", mountOptions,
+		)
+
+		if err := ns.mounter.Mount(source, target, fsType, mountOptions); err != nil {
+			return status.Errorf(codes.Internal, "Failed to mount %q at %q: %v", source, target, err)
+		}
+	}
+
+	return nil
+}
+
+func (ns *NodeService) isMounted(ctx context.Context, target string) (bool, error) {
+	logger := klog.FromContext(ctx)
+
+	notMnt, err := ns.mounter.IsLikelyNotMountPoint(target)
+	if err != nil && !os.IsNotExist(err) {
+		// Checking if the path exists and error is related to Corrupted Mount, in that case, the system could unmount and mount.
+		_, pathErr := ns.mounter.PathExists(target)
+		if pathErr != nil && ns.mounter.IsCorruptedMnt(pathErr) {
+			logger.V(4).Info("NodePublishVolume: Target path is a corrupted mount. Trying to unmount.", "target", target)
+			if mntErr := ns.mounter.Unpublish(target); mntErr != nil {
+				return false, fmt.Errorf("unable to unmount the target %q : %w", target, mntErr)
+			}
+
+			// After successful unmount, the device is ready to be mounted.
+			return false, nil
+		}
+
+		return false, fmt.Errorf("could not check if %q is a mount point: %w, %w", target, err, pathErr)
+	}
+
+	// Do not return os.IsNotExist error. Other errors were handled above. The
+	// existence of the target should be checked by the caller explicitly and
+	// independently because sometimes prior to mount it is expected not to exist.
+	if err != nil && os.IsNotExist(err) {
+		logger.V(5).Info("[Debug] NodePublishVolume: Target path does not exist", "target", target)
+
+		return false, nil
+	}
+
+	if !notMnt {
+		logger.V(4).Info("NodePublishVolume: Target path is already mounted", "target", target)
+	}
+
+	return !notMnt, nil
+}
+
+// hasMountOption returns a boolean indicating whether the given
+// slice already contains a mount option. This is used to prevent
+// passing duplicate option to the mount command.
+func hasMountOption(options []string, opt string) bool {
+	for _, o := range options {
+		if o == opt {
+			return true
+		}
+	}
+
+	return false
+}
+
+// collectMountOptions returns array of mount options from
+// VolumeCapability_MountVolume and special mount options for
+// given filesystem.
+func collectMountOptions(fsType string, mntFlags []string) []string {
+	var options []string
+	for _, opt := range mntFlags {
+		if !hasMountOption(options, opt) {
+			options = append(options, opt)
+		}
+	}
+
+	// By default, xfs does not allow mounting of two volumes with the same filesystem uuid.
+	// Force ignore this uuid to be able to mount volume + its clone / restored snapshot on the same node.
+	if fsType == FSTypeXfs {
+		if !hasMountOption(options, "nouuid") {
+			options = append(options, "nouuid")
+		}
+	}
+
+	return options
 }

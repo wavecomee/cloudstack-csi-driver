@@ -3,4 +3,4 @@
 /test/e2e/ginkgo
 cloud-config
 /vendor
-
+/hack/tools/bin

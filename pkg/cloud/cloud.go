@@ -9,8 +9,10 @@ import (
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 )
 
-// Interface is the CloudStack client interface.
-type Interface interface {
+//go:generate ../../hack/tools/bin/mockgen -destination=./mock_cloud.go -package=cloud -source ./cloud.go
+
+// Cloud is the CloudStack client interface.
+type Cloud interface {
 	GetNodeInfo(ctx context.Context, vmName string) (*VM, error)
 	GetVMByID(ctx context.Context, vmID string) (*VM, error)
 
@@ -52,14 +54,14 @@ var (
 	ErrTooManyResults = errors.New("too many results")
 )
 
-// client is the implementation of Interface.
+// client is the implementation of Cloud.
 type client struct {
 	*cloudstack.CloudStackClient
 	projectID string
 }
 
 // New creates a new cloud connector, given its configuration.
-func New(config *Config) Interface {
+func New(config *Config) Cloud {
 	csClient := &client{
 		projectID: config.ProjectID,
 	}

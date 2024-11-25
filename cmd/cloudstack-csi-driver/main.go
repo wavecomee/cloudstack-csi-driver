@@ -95,7 +95,7 @@ func main() {
 	ctx := klog.NewContext(context.Background(), logger)
 	csConnector := cloud.New(config)
 
-	d, err := driver.New(ctx, csConnector, &options, nil)
+	d, err := driver.NewDriver(ctx, csConnector, &options, nil)
 	if err != nil {
 		logger.Error(err, "Failed to initialize driver")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)

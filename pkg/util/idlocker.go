@@ -22,17 +22,17 @@ import (
 )
 
 const (
-	// ErrVolumeOperationAlreadyExistsVolumeID is the error msg logged for concurrent operation.
-	ErrVolumeOperationAlreadyExistsVolumeID = "an operation with the given Volume ID already exists"
+	// VolumeOperationAlreadyExistsVolumeIDFmt string format to return for concurrent operation.
+	VolumeOperationAlreadyExistsVolumeIDFmt = "an operation with the given volume ID %s already exists"
 
-	// ErrVolumeOperationAlreadyExistsVolumeName is the error msg logged for concurrent operation.
-	ErrVolumeOperationAlreadyExistsVolumeName = "an operation with the given Volume name already exists"
-
-	// VolumeOperationAlreadyExistsFmt string format to return for concurrent operation.
-	VolumeOperationAlreadyExistsFmt = "an operation with the given Volume ID %s already exists"
+	// VolumeOperationAlreadyExistsVolumeNameFmt string format to return for concurrent operation.
+	VolumeOperationAlreadyExistsVolumeNameFmt = "an operation with the given volume name %s already exists"
 
 	// SnapshotOperationAlreadyExistsFmt string format to return for concurrent operation.
-	SnapshotOperationAlreadyExistsFmt = "an operation with the given Snapshot ID %s already exists"
+	SnapshotOperationAlreadyExistsFmt = "an operation with the given snapshot ID %s already exists"
+
+	// TargetPathOperationAlreadyExistsFmt string format to return for concurrent operation on target path.
+	TargetPathOperationAlreadyExistsFmt = "an operation with the given target path %s already exists"
 )
 
 // VolumeLocks implements a map with atomic operations. It stores a set of all volume IDs

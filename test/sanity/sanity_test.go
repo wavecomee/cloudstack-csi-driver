@@ -42,11 +42,12 @@ func TestSanity(t *testing.T) {
 	ctx := klog.NewContext(context.Background(), logger)
 
 	options := driver.Options{
-		Mode:     driver.AllMode,
-		Endpoint: endpoint,
-		NodeName: "node",
+		Mode:              driver.AllMode,
+		Endpoint:          endpoint,
+		NodeName:          "node",
+		VolumeAttachLimit: 16,
 	}
-	csiDriver, err := driver.New(ctx, fake.New(), &options, mount.NewFake())
+	csiDriver, err := driver.NewDriver(ctx, fake.New(), &options, mount.NewFake())
 	if err != nil {
 		t.Fatalf("error creating driver: %v", err)
 	}

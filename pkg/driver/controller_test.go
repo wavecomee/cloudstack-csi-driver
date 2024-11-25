@@ -1,9 +1,28 @@
 package driver
 
 import (
+	"context"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
+
+	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
+)
+
+var (
+	FakeCapacityGiB    = 1
+	FakeVolName        = "CSIVolumeName"
+	FakeVolID          = "CSIVolumeID"
+	FakeAvailability   = "nova"
+	FakeDiskOfferingID = "9743fd77-0f5d-4ef9-b2f8-f194235c769c"
+	FakeVol            = cloud.Volume{
+		ID:     FakeVolID,
+		Name:   FakeVolName,
+		Size:   int64(FakeCapacityGiB),
+		ZoneID: FakeAvailability,
+	}
 )
 
 func TestDetermineSize(t *testing.T) {
@@ -39,4 +58,52 @@ func TestDetermineSize(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateVolume(t *testing.T) {
+	ctx := context.Background()
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	mockCloud := cloud.NewMockCloud(mockCtl)
+	mockCloud.EXPECT().CreateVolume(gomock.Eq(ctx), FakeDiskOfferingID, FakeAvailability, FakeVolName, gomock.Any()).Return(FakeVolID, nil)
+	mockCloud.EXPECT().GetVolumeByName(gomock.Eq(ctx), FakeVolName).Return(nil, cloud.ErrNotFound)
+	fakeCs := NewControllerService(mockCloud)
+	// mock CloudStack
+	// CreateVolume(ctx context.Context, diskOfferingID, zoneID, name string, sizeInGB int64) (string, error)
+	// csmock.On("CreateVolume", FakeCtx, FakeDiskOfferingID, FakeAvailability, FakeVolName, mock.AnythingOfType("int64")).Return(FakeVolID, nil)
+	// csmock.On("GetVolumeByName", FakeCtx, FakeVolName).Return(nil, cloud.ErrNotFound)
+	// Init assert
+	assert := assert.New(t)
+	// Fake request
+	fakeReq := &csi.CreateVolumeRequest{
+		Name: FakeVolName,
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			},
+		},
+		Parameters: map[string]string{
+			DiskOfferingKey: FakeDiskOfferingID,
+		},
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{
+				{
+					Segments: map[string]string{"topology.csi.cloudstack.apache.org/zone": FakeAvailability},
+				},
+			},
+		},
+	}
+	// Invoke CreateVolume
+	actualRes, err := fakeCs.CreateVolume(ctx, fakeReq)
+	if err != nil {
+		t.Errorf("failed to CreateVolume: %v", err)
+	}
+	// Assert
+	assert.NotNil(actualRes.GetVolume())
+	assert.NotNil(actualRes.GetVolume().GetCapacityBytes())
+	assert.NotEmpty(actualRes.GetVolume().GetVolumeId(), "Volume Id is empty")
+	assert.NotNil(actualRes.GetVolume().GetAccessibleTopology())
+	assert.Equal(FakeAvailability, actualRes.GetVolume().GetAccessibleTopology()[0].GetSegments()[ZoneKey])
 }
