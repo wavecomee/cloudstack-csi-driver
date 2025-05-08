@@ -1,6 +1,6 @@
 module github.com/leaseweb/cloudstack-csi-driver
 
-go 1.23
+go 1.23.0
 
 toolchain go1.23.5
 
@@ -9,21 +9,20 @@ require (
 	github.com/container-storage-interface/spec v1.10.0
 	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-uuid v1.0.3
-	github.com/kubernetes-csi/csi-lib-utils v0.19.0
 	github.com/kubernetes-csi/csi-test/v5 v5.3.1
-	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.9.0
-	go.uber.org/mock v0.5.0
-	golang.org/x/sys v0.26.0
-	golang.org/x/text v0.19.0
+	github.com/spf13/pflag v1.0.6
+	github.com/stretchr/testify v1.10.0
+	go.uber.org/mock v0.5.2
+	golang.org/x/sys v0.33.0
+	golang.org/x/text v0.25.0
 	google.golang.org/grpc v1.65.0
 	gopkg.in/gcfg.v1 v1.2.3
-	k8s.io/api v0.31.6
-	k8s.io/apimachinery v0.31.6
-	k8s.io/client-go v0.31.6
-	k8s.io/component-base v0.31.6
+	k8s.io/api v0.31.8
+	k8s.io/apimachinery v0.31.8
+	k8s.io/client-go v0.31.8
+	k8s.io/component-base v0.31.8
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/mount-utils v0.31.5
+	k8s.io/mount-utils v0.31.8
 	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8
 )
 
