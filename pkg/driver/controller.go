@@ -8,7 +8,6 @@ import (
 	"regexp"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
@@ -56,7 +55,7 @@ func NewControllerService(connector cloud.Cloud) *ControllerService {
 
 func (cs *ControllerService) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(4).Info("CreateVolume: called", "args", *req)
+	logger.V(4).Info("CreateVolume: called", "args", util.SanitizeRequest(req))
 
 	// Check arguments.
 
@@ -236,7 +235,7 @@ func determineSize(req *csi.CreateVolumeRequest) (int64, error) {
 
 func (cs *ControllerService) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(4).Info("DeleteVolume: called", "args", *req)
+	logger.V(4).Info("DeleteVolume: called", "args", util.SanitizeRequest(req))
 
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
@@ -271,7 +270,7 @@ func (cs *ControllerService) DeleteVolume(ctx context.Context, req *csi.DeleteVo
 
 func (cs *ControllerService) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(4).Info("ControllerPublishVolume: called", "args", *req)
+	logger.V(4).Info("ControllerPublishVolume: called", "args", util.SanitizeRequest(req))
 
 	// Check arguments.
 
@@ -374,7 +373,7 @@ func (cs *ControllerService) ControllerPublishVolume(ctx context.Context, req *c
 
 func (cs *ControllerService) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(4).Info("ControllerUnpublishVolume: called", "args", *req)
+	logger.V(4).Info("ControllerUnpublishVolume: called", "args", util.SanitizeRequest(req))
 
 	// Check arguments.
 
@@ -436,7 +435,7 @@ func (cs *ControllerService) ControllerUnpublishVolume(ctx context.Context, req 
 
 func (cs *ControllerService) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(4).Info("ValidateVolumeCapabilities: called", "args", *req)
+	logger.V(4).Info("ValidateVolumeCapabilities: called", "args", req)
 
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -480,7 +479,7 @@ func isValidVolumeCapabilities(volCaps []*csi.VolumeCapability) bool {
 
 func (cs *ControllerService) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(4).Info("ControllerExpandVolume: called", "args", protosanitizer.StripSecrets(*req))
+	logger.V(4).Info("ControllerExpandVolume: called", "args", util.SanitizeRequest(req))
 
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -548,7 +547,7 @@ func (cs *ControllerService) ControllerExpandVolume(ctx context.Context, req *cs
 
 func (cs *ControllerService) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
 	logger := klog.FromContext(ctx)
-	logger.V(4).Info("ControllerGetCapabilities: called", "args", protosanitizer.StripSecrets(*req))
+	logger.V(4).Info("ControllerGetCapabilities: called", "args", req)
 
 	resp := &csi.ControllerGetCapabilitiesResponse{
 		Capabilities: []*csi.ControllerServiceCapability{

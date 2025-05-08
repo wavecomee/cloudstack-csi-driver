@@ -27,10 +27,39 @@ BIN_DIR ?= bin
 
 GO_INSTALL := ./hack/go_install.sh
 
+GOLANGCI_LINT_BIN := golangci-lint
+GOLANGCI_LINT_VER := v1.63.4
+GOLANGCI_LINT := $(abspath $(TOOLS_BIN_DIR)/$(GOLANGCI_LINT_BIN)-$(GOLANGCI_LINT_VER))
+GOLANGCI_LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
+
 MOCKGEN_BIN := mockgen
 MOCKGEN_VER := v0.5.0
 MOCKGEN := $(abspath $(TOOLS_BIN_DIR)/$(MOCKGEN_BIN)-$(MOCKGEN_VER))
 MOCKGEN_PKG := go.uber.org/mock/mockgen
+
+##@ Linting
+## --------------------------------------
+## Linting
+## --------------------------------------
+
+.PHONY: fmt
+fmt: ## Run go fmt on the whole project.
+	go fmt ./...
+
+.PHONY: vet
+vet: ## Run go vet on the whole project.
+	go vet ./...
+
+.PHONY: lint
+lint: $(GOLANGCI_LINT) generate-mocks ## Run linting for the project.
+	$(MAKE) fmt
+	$(MAKE) vet
+	$(GOLANGCI_LINT) run -v --timeout 360s ./...
+
+##@ Build
+## --------------------------------------
+## Build
+## --------------------------------------
 
 .PHONY: all
 all: build
@@ -43,6 +72,7 @@ container: $(CMDS:%=container-%)
 
 .PHONY: clean
 clean:
+	rm -rf $(TOOLS_BIN_DIR)
 	rm -rf bin test/e2e/e2e.test test/e2e/ginkgo
 
 .PHONY: build-%
@@ -81,8 +111,14 @@ test-e2e: setup-external-e2e
 
 ##@ hack/tools:
 
+.PHONY: $(GOLANGCI_LINT_BIN)
+$(GOLANGCI_LINT_BIN): $(GOLANGCI_LINT) ## Build a local copy of golangci-lint.
+
 .PHONY: $(MOCKGEN_BIN)
 $(MOCKGEN_BIN): $(MOCKGEN) ## Build a local copy of mockgen.
+
+$(GOLANGCI_LINT): # Build golangci-lint from tools folder.
+	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOLANGCI_LINT_PKG) $(GOLANGCI_LINT_BIN) $(GOLANGCI_LINT_VER)
 
 $(MOCKGEN): # Build mockgen from tools folder.
 	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(MOCKGEN_PKG) $(MOCKGEN_BIN) $(MOCKGEN_VER)
