@@ -1,4 +1,4 @@
-module github.com/leaseweb/cloudstack-csi-driver
+module github.com/wavecomee/cloudstack-csi-driver
 
 go 1.23.0
 
