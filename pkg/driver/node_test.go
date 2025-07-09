@@ -12,9 +12,9 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/ktesting"
 
-	cloud "github.com/leaseweb/cloudstack-csi-driver/pkg/cloud/fake"
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/util"
+	cloud "github.com/wavecomee/cloudstack-csi-driver/pkg/cloud/fake"
+	"github.com/wavecomee/cloudstack-csi-driver/pkg/mount"
+	"github.com/wavecomee/cloudstack-csi-driver/pkg/util"
 )
 
 const (

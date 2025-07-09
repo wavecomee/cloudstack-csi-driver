@@ -7,8 +7,8 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud/fake"
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
+	"github.com/wavecomee/cloudstack-csi-driver/pkg/cloud/fake"
+	"github.com/wavecomee/cloudstack-csi-driver/pkg/mount"
 )
 
 func TestNewDriver(t *testing.T) {

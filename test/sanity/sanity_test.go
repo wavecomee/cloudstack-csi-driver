@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/kubernetes-csi/csi-test/v5/pkg/sanity"
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud/fake"
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/driver"
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/mount"
+	"github.com/wavecomee/cloudstack-csi-driver/pkg/cloud/fake"
+	"github.com/wavecomee/cloudstack-csi-driver/pkg/driver"
+	"github.com/wavecomee/cloudstack-csi-driver/pkg/mount"
 )
 
 func TestSanity(t *testing.T) {

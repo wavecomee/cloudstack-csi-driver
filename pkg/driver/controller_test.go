@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	"github.com/leaseweb/cloudstack-csi-driver/pkg/cloud"
+	"github.com/wavecomee/cloudstack-csi-driver/pkg/cloud"
 )
 
 var (
