@@ -8,7 +8,7 @@ on:
       - v*
 
 env:
-  REGISTRY_NAME: ghcr.io/leaseweb
+  REGISTRY_NAME: harbor.wavecom.ee/cs-k8s
   IMAGES: "cloudstack-csi-driver cloudstack-csi-sc-syncer"
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       - name: Log into registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: harbor.wavecom.ee
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
 
