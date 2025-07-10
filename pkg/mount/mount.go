@@ -48,6 +48,20 @@ type Mounter interface { //nolint:interfacebloat
 // A superstruct of SafeFormatAndMount.
 type NodeMounter struct {
 	*mount.SafeFormatAndMount
+	cloudClient CloudClient
+}
+
+// CloudClient interface for getting volume information
+type CloudClient interface {
+	GetVolumeByID(ctx context.Context, volumeID string) (*Volume, error)
+}
+
+// Volume represents a CloudStack volume with device ID
+type Volume struct {
+	ID       string
+	Name     string
+	Size     int64
+	DeviceID string
 }
 
 type VolumeStatistics struct {
@@ -58,10 +72,21 @@ type VolumeStatistics struct {
 // New creates an implementation of the mount.Mounter.
 func New() Mounter {
 	return &NodeMounter{
-		&mount.SafeFormatAndMount{
+		SafeFormatAndMount: &mount.SafeFormatAndMount{
 			Interface: mount.New(""),
 			Exec:      kexec.New(),
 		},
+	}
+}
+
+// NewWithCloudClient creates an implementation of the mount.Mounter with CloudStack client.
+func NewWithCloudClient(cloudClient CloudClient) Mounter {
+	return &NodeMounter{
+		SafeFormatAndMount: &mount.SafeFormatAndMount{
+			Interface: mount.New(""),
+			Exec:      kexec.New(),
+		},
+		cloudClient: cloudClient,
 	}
 }
 
@@ -81,6 +106,11 @@ func (m *NodeMounter) GetBlockSizeBytes(devicePath string) (int64, error) {
 }
 
 func (m *NodeMounter) GetDevicePath(ctx context.Context, volumeID string) (string, error) {
+	// Detect and log hypervisor type
+	hypervisor := DetectHypervisor()
+
+	logHypervisorDetection(ctx, hypervisor, "device_detection")
+
 	backoff := wait.Backoff{
 		Duration: 1 * time.Second,
 		Factor:   1.1,
@@ -89,7 +119,7 @@ func (m *NodeMounter) GetDevicePath(ctx context.Context, volumeID string) (strin
 
 	var devicePath string
 	err := wait.ExponentialBackoffWithContext(ctx, backoff, func(context.Context) (bool, error) {
-		path, err := m.getDevicePathBySerialID(volumeID)
+		path, err := m.getDevicePathBySerialID(ctx, volumeID)
 		if err != nil {
 			return false, err
 		}
@@ -112,7 +142,22 @@ func (m *NodeMounter) GetDevicePath(ctx context.Context, volumeID string) (strin
 	return devicePath, nil
 }
 
-func (m *NodeMounter) getDevicePathBySerialID(volumeID string) (string, error) {
+func (m *NodeMounter) getDevicePathBySerialID(ctx context.Context, volumeID string) (string, error) {
+	// Detect hypervisor type
+	hypervisor := DetectHypervisor()
+
+	switch hypervisor {
+	case HypervisorXen:
+		return m.getXenDevicePath(ctx, volumeID)
+	case HypervisorKVM:
+		fallthrough
+	default:
+		return m.getKVMDevicePath(volumeID)
+	}
+}
+
+// getKVMDevicePath implements the original KVM device detection logic
+func (m *NodeMounter) getKVMDevicePath(volumeID string) (string, error) {
 	sourcePathPrefixes := []string{"virtio-", "scsi-", "scsi-0QEMU_QEMU_HARDDISK_"}
 	serial := diskUUIDToSerial(volumeID)
 	for _, prefix := range sourcePathPrefixes {
@@ -123,6 +168,56 @@ func (m *NodeMounter) getDevicePathBySerialID(volumeID string) (string, error) {
 		}
 		if !os.IsNotExist(err) {
 			return "", err
+		}
+	}
+
+	return "", nil
+}
+
+// getXenDevicePath implements Xen device detection logic.
+func (m *NodeMounter) getXenDevicePath(ctx context.Context, volumeID string) (string, error) {
+	// For Xen, we need to get the device ID from CloudStack API
+	// The device ID comes from the volume attachment response
+	if m.cloudClient != nil {
+		// Retry GetVolumeByID until we get a successful result
+		// This handles temporary CloudStack API connectivity issues
+		backoff := wait.Backoff{
+			Duration: 1 * time.Second,
+			Factor:   1.0, // No exponential backoff, just 1 second intervals
+			Steps:    30,  // Retry for up to 30 seconds
+		}
+
+		var volume *Volume
+		err := wait.ExponentialBackoffWithContext(ctx, backoff, func(context.Context) (bool, error) {
+			var apiErr error
+			volume, apiErr = m.cloudClient.GetVolumeByID(ctx, volumeID)
+			if apiErr != nil {
+				// Log the error but continue retrying
+				klog.V(4).Info("CloudStack API call failed, retrying", "error", apiErr, "volumeID", volumeID)
+				return false, nil // Return false to continue retrying
+			}
+			return true, nil // Success, stop retrying
+		})
+
+		if err == nil && volume != nil && volume.DeviceID != "" {
+			// Convert device ID to Xen device path using the formula
+			devicePath, err := xenDeviceIDToPath(volume.DeviceID)
+			if err == nil {
+				if _, err := os.Stat(devicePath); err == nil {
+					klog.V(4).Info("Found Xen device path via CloudStack API", "devicePath", devicePath, "deviceID", volume.DeviceID)
+					return devicePath, nil
+				}
+			}
+		}
+	}
+
+	// Fallback: scan for available Xen devices
+	xenDevicePaths := getXenDevicePaths(volumeID)
+	for _, devicePath := range xenDevicePaths {
+		if _, err := os.Stat(devicePath); err == nil {
+			// Found an existing Xen device, return it
+			klog.V(4).Info("Found Xen device path via fallback scanning", "devicePath", devicePath)
+			return devicePath, nil
 		}
 	}
 

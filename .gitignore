@@ -4,3 +4,6 @@
 cloud-config
 /vendor
 /hack/tools/bin
+/.cursorrules
+/.cursor
+/memory-bank

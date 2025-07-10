@@ -32,6 +32,8 @@ func (m *fakeMounter) GetBlockSizeBytes(_ string) (int64, error) {
 }
 
 func (m *fakeMounter) GetDevicePath(_ context.Context, _ string) (string, error) {
+	// For fake testing, return a generic device path
+	// In real testing, this could be made configurable based on hypervisor
 	return "/dev/sdb", nil
 }
 

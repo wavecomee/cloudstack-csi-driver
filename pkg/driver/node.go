@@ -43,7 +43,8 @@ type NodeService struct {
 // NewNodeService creates a new node service.
 func NewNodeService(connector cloud.Cloud, mounter mount.Mounter, options *Options) *NodeService {
 	if mounter == nil {
-		mounter = mount.New()
+		// Create a mounter with CloudStack client for Xen device detection
+		mounter = mount.NewWithCloudClient(&cloudClientAdapter{connector: connector})
 	}
 
 	return &NodeService{
@@ -53,6 +54,25 @@ func NewNodeService(connector cloud.Cloud, mounter mount.Mounter, options *Optio
 		nodeName:          options.NodeName,
 		volumeLocks:       util.NewVolumeLocks(),
 	}
+}
+
+// cloudClientAdapter adapts cloud.Cloud to mount.CloudClient interface.
+type cloudClientAdapter struct {
+	connector cloud.Cloud
+}
+
+func (c *cloudClientAdapter) GetVolumeByID(ctx context.Context, volumeID string) (*mount.Volume, error) {
+	vol, err := c.connector.GetVolumeByID(ctx, volumeID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mount.Volume{
+		ID:       vol.ID,
+		Name:     vol.Name,
+		Size:     vol.Size,
+		DeviceID: vol.DeviceID,
+	}, nil
 }
 
 func (ns *NodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
